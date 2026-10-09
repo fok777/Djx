@@ -129,10 +129,15 @@ public final class EngineUnpacker {
             // 来自 libgcc/libunwind 的符号在目标 ROM 上找不到。
             if (out.contains("CANNOT LINK EXECUTABLE")) {
                 String missing = "";
-                java.util.regex.Matcher m = java.util.regex.Pattern
-                        .compile("cannot locate symbol \\"([^\\"]+)\\"")
-                        .matcher(out);
-                if (m.find()) missing = m.group(1);
+                // 不用正则：避免 Java/正则双重转义出错，直接找符号名
+                int k = out.indexOf("cannot locate symbol");
+                if (k >= 0) {
+                    int s1 = out.indexOf('"', k);
+                    if (s1 >= 0) {
+                        int s2 = out.indexOf('"', s1 + 1);
+                        if (s2 > s1) missing = out.substring(s1 + 1, s2);
+                    }
+                }
                 return "link失败 exit=" + code + " 缺符号=" + (missing.isEmpty() ? "?" : missing)
                         + "\n  已设 LD_LIBRARY_PATH=" + libPath
                         + "\n  该符号通常来自 libc++_shared.so / libunwind；"
