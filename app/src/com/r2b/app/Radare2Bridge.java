@@ -64,6 +64,23 @@ public final class Radare2Bridge {
         "libr_main.so",
     };
 
+    /**
+     * 初始化必须跑的 r2 配置命令。
+     * 从 libr2aibridge.so 的字符串表逆向得出——它 initR2Core 里就执行这些：
+     *   scr.color=0        关 ANSI 颜色，否则输出混着转义码
+     *   scr.interactive=0  关交互，否则命令可能等输入卡死
+     *   scr.utf8=0         关 UTF8 框图
+     *   io.cache=true      打开 IO 缓存，读写不落盘
+     *   anal.strings=true  分析时顺带抽字符串
+     */
+    private static final String[] INIT_CMDS = {
+        "e scr.color=0",
+        "e scr.interactive=false",
+        "e scr.utf8=0",
+        "e io.cache=true",
+        "e anal.strings=true",
+    };
+
     public static class LoadReport {
         public boolean ok;
         public List<String> loaded = new ArrayList<String>();
@@ -137,6 +154,11 @@ public final class Radare2Bridge {
                 loaded = true;
                 loadError = null;
                 Log.i(TAG, "radare2 加载完成，已加载 " + rep.loaded.size() + " 个库");
+                // 跑初始化配置：不设 scr.color=0 的话输出全是 ANSI 转义码
+                for (String c : INIT_CMDS) {
+                    try { cmd(c); } catch (Throwable ignored) {}
+                }
+                Log.i(TAG, "r2 初始化命令已执行");
             } catch (Throwable t) {
                 rep.error = "JNI 桥不可用: " + t.getClass().getSimpleName()
                         + ": " + t.getMessage();
@@ -174,15 +196,34 @@ public final class Radare2Bridge {
         }
     }
 
-    /** 打开目标文件（so / 二进制）。 */
+    /**
+     * 打开目标文件（so / 二进制 / APK）。
+     *
+     * 桥内部是「先 o，失败再 oo+」的双策略（见其日志字符串
+     * "File opened with o: %s" / "File opened with oo+: %s"），
+     * 这里同样做两次尝试，并把每次的结果都带回来便于排查。
+     */
     public static String open(String path) {
         if (!loaded) return "radare2 未加载: " + loadError;
+        if (path == null) return "路径为空";
+        File f = new File(path);
+        if (!f.exists()) return "文件不存在: " + path;
         try {
             Class<?> k = Class.forName("com.r2aibridge.R2Core");
             Object inst = k.newInstance();
             k.getMethod("initR2Core").invoke(inst);
-            java.lang.reflect.Method m = k.getMethod("openFile", String.class);
-            return String.valueOf(m.invoke(inst, path));
+            Object out = k.getMethod("openFile", String.class).invoke(inst, path);
+            String r = String.valueOf(out);
+            // openFile 返回 false / 错误时，退而用 oo+ 重新打开
+            if (r == null || "false".equalsIgnoreCase(r.trim())
+                    || r.toLowerCase().contains("fail")) {
+                String viaCmd = cmd("oo+ " + path);
+                if (viaCmd != null && !viaCmd.toLowerCase().contains("fail")) {
+                    return "oo+ 成功: " + viaCmd;
+                }
+                return "两种方式均失败。o -> " + r + " | oo+ -> " + viaCmd;
+            }
+            return r;
         } catch (Throwable t) {
             return "打开文件失败: " + t.getClass().getSimpleName() + ": " + t.getMessage();
         }

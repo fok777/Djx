@@ -190,6 +190,8 @@ public class McpForegroundService extends Service {
             }
         }).start();
 
+        android.preference.PreferenceManager.getDefaultSharedPreferences(this)
+                .edit().putBoolean("auto_start_service", true).apply();
         emit("MCP 服务已在前台服务中启动，端口 " + port);
         updateNotify("服务运行中 · 端口 " + port);
         return START_STICKY;
@@ -265,6 +267,8 @@ public class McpForegroundService extends Service {
 
     @Override
     public void onDestroy() {
+        android.preference.PreferenceManager.getDefaultSharedPreferences(this)
+                .edit().putBoolean("auto_start_service", false).apply();
         emit("MCP 服务停止");
         if (mcp != null) {
             mcp.stop();

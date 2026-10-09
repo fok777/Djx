@@ -140,10 +140,13 @@ def call_tool(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
     try:
         timeout = getattr(cfg, "tool_timeout", 120)
         result = _invoke_with_timeout(fn, kwargs, timeout)
-        text = json.dumps(result, ensure_ascii=False, default=str)
-        if len(text) > cfg.max_output_chars:
-            text = text[:cfg.max_output_chars] + "\n...[truncated]"
-        return {"content": [{"type": "text", "text": text}]}
+        text, meta = render_result(name, result, args)
+        res = {"content": [{"type": "text", "text": text}]}
+        if meta:
+            # structuredContent 是 MCP 标准字段，用来回传截断/blob 元信息，
+            # 不污染 content.text
+            res["structuredContent"] = meta
+        return res
     except TypeError as e:
         log.error("工具 %s 参数绑定失败: %s | 期望参数: %s",
                   name, e, list(inspect.signature(fn).parameters))
@@ -164,6 +167,134 @@ def call_tool(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         log.error("工具 %s 执行异常", name, exc_info=True)
         return {"content": [{"type": "text", "text": f"{type(e).__name__}: {e}"}], "isError": True}
+
+
+# ---- 大输出处理 ----
+# 借鉴 frida-mcp：几 MB 的反汇编 / 内存 dump 不能直接塞回模型，
+# 采用「自适应截断 + blob 外置 + next_offset 续取」。
+import hashlib, tempfile, threading as _th
+
+_BLOB_DIR = None
+_BLOB_LOCK = _th.Lock()
+
+
+def _blob_dir():
+    """blob 存放目录，懒创建。"""
+    global _BLOB_DIR
+    with _BLOB_LOCK:
+        if _BLOB_DIR is None:
+            d = os.getenv("R2B_BLOB_DIR")
+            if not d:
+                d = os.path.join(tempfile.gettempdir(), "r2b_blobs")
+            os.makedirs(d, exist_ok=True)
+            _BLOB_DIR = d
+        return _BLOB_DIR
+
+
+def _save_blob(text):
+    """把完整结果写盘，返回 blob_id（失败返回空串）。"""
+    try:
+        bid = "blob_" + hashlib.sha256(
+            text.encode("utf-8", "replace")).hexdigest()[:16]
+        with open(os.path.join(_blob_dir(), bid + ".txt"), "w",
+                  encoding="utf-8", errors="replace") as f:
+            f.write(text)
+        return bid
+    except Exception as e:
+        log.warning("blob 写入失败: %s", e)
+        return ""
+
+
+def _load_blob(bid):
+    """按 blob_id 取回完整结果。"""
+    if not bid or not str(bid).startswith("blob_"):
+        return None
+    try:
+        with open(os.path.join(_blob_dir(), str(bid) + ".txt"),
+                  encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except Exception:
+        return None
+
+
+def truncate_result(obj, budget):
+    """
+    自适应截断：列表按条目二分裁剪，字典逐键裁剪（优先丢最长的列表值）。
+    返回 (裁剪后对象, 是否发生裁剪, 原始条目数, 实际返回条目数)。
+    """
+    if isinstance(obj, list) and obj:
+        def size(n):
+            return len(json.dumps(obj[:n], ensure_ascii=False, default=str))
+        if size(len(obj)) <= budget:
+            return obj, False, len(obj), len(obj)
+        lo, hi = 0, len(obj)
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if size(mid) <= budget:
+                lo = mid
+            else:
+                hi = mid - 1
+        n = max(lo, 1)
+        return obj[:n], True, len(obj), n
+
+    if isinstance(obj, dict):
+        cur = dict(obj)
+        if len(json.dumps(cur, ensure_ascii=False, default=str)) <= budget:
+            return cur, False, len(cur), len(cur)
+        total = len(cur)
+        big = sorted(cur.items(), key=lambda kv: -len(json.dumps(
+            kv[1], ensure_ascii=False, default=str)))
+        for k, v in big:
+            if len(json.dumps(cur, ensure_ascii=False, default=str)) <= budget:
+                break
+            if isinstance(v, (list, dict)):
+                cut, _, _, _ = truncate_result(v, max(budget // 4, 512))
+                cur[k] = cut
+                cur[k + "_truncated"] = True
+            else:
+                cur.pop(k, None)
+        return cur, True, total, len(cur)
+
+    return obj, False, 0, 0
+
+
+def render_result(name, result, args):
+    """
+    把工具返回值渲染成 MCP 文本。
+    超过预算时：截断 + 写 blob + 在文本里给出续取方式。
+    返回 (文本, meta 字典)；未超预算时 meta 为空字典。
+    """
+    full = json.dumps(result, ensure_ascii=False, default=str)
+    budget = cfg.max_output_chars
+    limit = args.get("limit") if isinstance(args, dict) else None
+
+    if len(full) <= budget:
+        return full, {}
+
+    cut, did_cut, total, returned = truncate_result(result, budget)
+    text = json.dumps(cut, ensure_ascii=False, default=str)
+    meta = {
+        "truncated": True,
+        "total_chars": len(full),
+        "returned_chars": len(text),
+    }
+    if did_cut:
+        meta["total_items"] = total
+        meta["returned_items"] = returned
+        meta["next_offset"] = returned
+
+    bid = _save_blob(full)
+    if bid:
+        meta["blob_id"] = bid
+
+    hint = (
+        "\n[输出已截断] 原始 %d 字符，返回 %d 字符。" % (len(full), len(text))
+        + (" 共 %d 项，返回前 %d 项。" % (total, returned) if did_cut else "")
+        + ("\n完整结果 blob_id=%s，可用 Blob_Read 取回。" % bid if bid else "")
+        + ("\n建议传 limit 分页。"
+           if limit is None else "\n可调小 limit（当前 %s）。" % limit)
+    )
+    return text + hint, meta
 
 
 def _ok(id_, result):

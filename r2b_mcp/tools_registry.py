@@ -439,6 +439,8 @@ SPEC: List[tuple] = [
 
     ("Engine_R2_Deps", "检查 radare2 的 libr_*.so 是否齐全(bridge 依赖 libr_core.so)。", {"dir_hint": OPT}, []),
 
+    ("Blob_Read", "取回被截断的大结果(反汇编/内存dump等)：按 blob_id 分页读取完整内容。", {"blob_id": S, "limit": I, "offset": I}, ["blob_id"]),
+
     ("Engine_Inventory", "清点引擎资产：有什么/缺什么/去哪补完整版。", {}, []),
     ("Engine_Fetch_Plan", "某引擎的补货步骤(只出命令，不下网)。", {"engine": OPT}, []),
 

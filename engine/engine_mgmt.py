@@ -248,3 +248,32 @@ def engine_fetch_plan(engine: str = "") -> Dict[str, Any]:
         return plans.get(engine, {"error": f"未知引擎 {engine}",
                                   "available": list(plans)})
     return plans
+
+
+def blob_read(blob_id: str = "", limit: int = 200_000, offset: int = 0):
+    """
+    取回被截断的大结果（配合 render_result 的 blob_id 使用）。
+
+    反汇编、内存 dump、对象池这类输出常有几 MB，直接塞回模型会爆上下文，
+    所以超预算时只回摘要 + blob_id，完整内容用本工具分页取回。
+    """
+    from r2b_mcp.server import _load_blob, _blob_dir
+    if not blob_id:
+        return {"error": "需要 blob_id"}
+    txt = _load_blob(blob_id)
+    if txt is None:
+        return {"error": "blob 不存在或已清理: %s" % blob_id,
+                "dir": _blob_dir()}
+    total = len(txt)
+    off = max(0, int(offset or 0))
+    lim = max(1, int(limit or 200_000))
+    chunk = txt[off:off + lim]
+    return {
+        "blob_id": blob_id,
+        "total_chars": total,
+        "offset": off,
+        "returned_chars": len(chunk),
+        "has_more": off + len(chunk) < total,
+        "next_offset": off + len(chunk) if off + len(chunk) < total else None,
+        "content": chunk,
+    }

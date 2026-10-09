@@ -1,157 +1,185 @@
 package com.r2b.app;
 
 import android.content.Context;
-import android.content.res.AssetManager;
 import android.util.Log;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * 引擎资产释放器。
+ * 引擎资产定位。
  *
- * APK 的 assets/engine/ 下打包了 blutter / frida / unidbg / radare2 等引擎
- * （约 190MB）。这些是要被 exec 或 dlopen 的真实二进制，放在 APK 里不能直接执行，
- * 必须在首次启动时释放到私有目录并置可执行位。
+ * 关键约束（这是之前一直跑不通的根因）：
+ *   Android targetSdk >= 29 起，SELinux 禁止 untrusted_app 对自己应用私有目录
+ *   （app_data_file，即 filesDir / cacheDir）里的文件执行 execve()。
+ *   这不是 chmod 755 能绕过的——它是 SELinux 策略，不是 Unix 权限位。
  *
- * 目标：/data/data/com.r2b.app/files/engine/<引擎>/<文件>
+ * 所以 blutter 那 23 个 PIE 可执行文件、frida-server 这类要 exec 的二进制，
+ * 不能从 assets/ 释放到 filesDir 再执行，那样必然失败。
+ * 正确位置是 nativeLibraryDir（/data/app/<pkg>/lib/arm64/），
+ * 由系统在安装时提取（需 Manifest 里 android:extractNativeLibs="true"），
+ * 那里的 SELinux 标签才允许执行。
  *
- * 用版本标记避免每次启动都重拷：释放完写 .unpacked-<版本号> 标记文件，
- * 下次启动若标记存在且资产清单未变，则跳过。
+ * radare2 的 libr_*.so 是 dlopen（System.load），放 nativeLibraryDir 同样最稳。
  */
-public class EngineUnpacker {
+public final class EngineUnpacker {
 
     private static final String TAG = "R2B_Engine";
     private static final String ASSET_PREFIX = "engine/";
     private static final String STAMP = ".unpacked";
 
-    public interface Progress {
-        void onProgress(String msg);
+    private EngineUnpacker() {}
+
+    /** nativeLibraryDir：可执行引擎的真正位置。 */
+    public static File nativeDir(Context c) {
+        String p = null;
+        try {
+            p = c.getApplicationInfo().nativeLibraryDir;
+        } catch (Exception ignored) {
+        }
+        return p != null ? new File(p) : null;
     }
 
-    private final Context ctx;
-    private final Progress progress;
-
-    public EngineUnpacker(Context ctx, Progress progress) {
-        this.ctx = ctx;
-        this.progress = progress;
-    }
-
-    /** 引擎根目录（私有目录，天然可执行）。 */
-    public static File engineRoot(Context ctx) {
-        File f = new File(ctx.getFilesDir(), "engine");
+    /** 只读数据目录（jar/js/json），这些不需要执行，放 filesDir 即可。 */
+    public static File engineRoot(Context c) {
+        File f = new File(c.getFilesDir(), "engine");
         if (!f.exists()) f.mkdirs();
         return f;
     }
 
-    /** 是否已释放过。 */
-    public boolean isUnpacked() {
-        return new File(engineRoot(ctx), STAMP).exists();
+    /** 是否已释放过只读数据。 */
+    public static boolean isUnpacked(Context c) {
+        return new File(engineRoot(c), STAMP).exists();
     }
 
     /**
-     * 释放全部引擎资产。已在后台线程调用，不要放主线程。
-     * @return 释放的文件数
+     * 找一个可执行文件（blutter / frida-server 等）。
+     * 只在 nativeLibraryDir 里找——filesDir 里的 execve 会被 SELinux 拒绝。
      */
-    public int unpack() throws Exception {
-        File root = engineRoot(ctx);
-        AssetManager am = ctx.getAssets();
-        int n = 0;
-
-        String[] engines = am.list(ASSET_PREFIX);
-        if (engines == null || engines.length == 0) {
-            Log.w(TAG, "assets/engine/ 为空，跳过释放");
-            return 0;
-        }
-        for (String eng : engines) {
-            String[] files = am.list(ASSET_PREFIX + eng);
-            if (files == null || files.length == 0) {
-                // 可能是文件而非目录
-                n += copyOne(am, ASSET_PREFIX + eng, new File(root, eng));
-                continue;
-            }
-            File dir = new File(root, eng);
-            if (!dir.exists()) dir.mkdirs();
-            for (String fn : files) {
-                n += copyOne(am, ASSET_PREFIX + eng + "/" + fn, new File(dir, fn));
+    public static File findExecutable(Context c, String name) {
+        File nd = nativeDir(c);
+        if (nd == null) return null;
+        File direct = new File(nd, name);
+        if (direct.exists() && direct.canExecute()) return direct;
+        File[] fs = nd.listFiles();
+        if (fs != null) {
+            for (File f : fs) {
+                if (f.getName().equals(name) && f.canExecute()) return f;
             }
         }
-
-        new File(root, STAMP).createNewFile();
-        Log.i(TAG, "引擎释放完成，共 " + n + " 个文件 -> " + root);
-        return n;
+        return null;
     }
 
-    private int copyOne(AssetManager am, String assetPath, File dst) throws Exception {
-        // 体积大，逐个报告进度
-        long size = 0;
+    /** 列出 nativeLibraryDir 里所有 .so（按名字分组给 blutter 用）。 */
+    public static List<File> listNativeLibs(Context c, String prefix) {
+        List<File> out = new ArrayList<File>();
+        File nd = nativeDir(c);
+        if (nd == null || !nd.isDirectory()) return out;
+        File[] fs = nd.listFiles();
+        if (fs == null) return out;
+        for (File f : fs) {
+            if (f.getName().startsWith(prefix) && f.getName().endsWith(".so")) {
+                out.add(f);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * 可执行文件是否真的能跑。
+     * 直接试一次 exec（用 -h/--help 之类无害参数），失败就把 stderr 带回来，
+     * 这样日志里能一眼看出是 SELinux 拒绝还是别的原因。
+     */
+    public static String tryExec(File exe, String... args) {
+        if (exe == null) return "可执行文件不存在";
+        if (!exe.canExecute()) {
+            return "不可执行（SELinux 或权限位）: " + exe.getAbsolutePath();
+        }
         try {
-            android.content.res.AssetFileDescriptor fd = am.openFd(assetPath);
-            size = fd.getLength();
-            fd.close();
-        } catch (Exception ignored) {
-            // 压缩存储时取不到长度，忽略
-        }
-        if (progress != null) {
-            String mb = size > 0 ? String.format(" (%.1f MB)", size / 1048576.0) : "";
-            progress.onProgress("释放 " + dst.getName() + mb);
-        }
-
-        InputStream is = am.open(assetPath);
-        OutputStream os = new FileOutputStream(dst);
-        byte[] buf = new byte[65536];
-        int r;
-        while ((r = is.read(buf)) > 0) os.write(buf, 0, r);
-        os.flush();
-        os.close();
-        is.close();
-
-        // 可执行文件与共享库需要执行位
-        String name = dst.getName();
-        if (name.endsWith(".so") || name.endsWith(".jar")
-                || name.equals("frida-server") || !name.contains(".")) {
-            try {
-                Runtime.getRuntime().exec(new String[]{"chmod", "755", dst.getAbsolutePath()}).waitFor();
-            } catch (Exception ignored) {
-                // 部分 ROM 无 chmod 命令，忽略
+            List<String> cmd = new ArrayList<String>();
+            cmd.add(exe.getAbsolutePath());
+            if (args != null) for (String a : args) cmd.add(a);
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.directory(exe.getParentFile());
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            java.io.InputStream is = p.getInputStream();
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int r;
+            long total = 0;
+            while ((r = is.read(buf)) > 0 && total < 8192) {
+                bo.write(buf, 0, r);
+                total += r;
             }
+            is.close();
+            int code = p.waitFor();
+            return "exit=" + code + " 输出: "
+                    + new String(bo.toByteArray(), "UTF-8").trim();
+        } catch (Exception e) {
+            return "exec 失败: " + e.getClass().getSimpleName() + ": " + e.getMessage();
         }
-        return 1;
     }
 
-    /** 统计已释放的引擎，供 UI 显示。 */
-    public static String describe(Context ctx) {
-        File root = engineRoot(ctx);
+    /** 状态摘要，写进日志。 */
+    public static String describe(Context c) {
         StringBuilder sb = new StringBuilder();
-        File[] dirs = root.listFiles();
-        if (dirs == null) return "未释放";
-        for (File d : dirs) {
-            if (!d.isDirectory()) continue;
-            File[] fs = d.listFiles();
-            int cnt = fs == null ? 0 : fs.length;
-            long sum = 0;
-            if (fs != null) for (File f : fs) sum += f.length();
-            sb.append(d.getName()).append(": ").append(cnt)
-              .append(" 个 / ").append(String.format("%.1f", sum / 1048576.0)).append(" MB\n");
+        File nd = nativeDir(c);
+        sb.append("nativeLibraryDir=").append(nd == null ? "null" : nd.getAbsolutePath());
+        if (nd != null && nd.isDirectory()) {
+            File[] fs = nd.listFiles();
+            int n = fs == null ? 0 : fs.length;
+            sb.append("\n  可执行文件 ").append(n).append(" 个");
+            int exec = 0;
+            if (fs != null) {
+                for (File f : fs) {
+                    if (f.canExecute()) exec++;
+                }
+            }
+            sb.append("，其中可执行位为真的 ").append(exec).append(" 个");
         }
-        return sb.toString().trim();
+        sb.append("\n  engineRoot=").append(engineRoot(c).getAbsolutePath());
+        return sb.toString();
     }
 
-    /** 引擎可用性：哪些引擎目录非空。 */
-    public static Set<String> available(Context ctx) {
-        Set<String> s = new HashSet<String>();
-        File root = engineRoot(ctx);
-        File[] dirs = root.listFiles();
-        if (dirs == null) return s;
-        for (File d : dirs) {
-            if (!d.isDirectory()) continue;
-            File[] fs = d.listFiles();
-            if (fs != null && fs.length > 0) s.add(d.getName());
+    /** 释放只读数据（jar/js/json），可执行文件不在这里。 */
+    public static int unpackAssets(Context c) {
+        File root = engineRoot(c);
+        if (isUnpacked(c)) return 0;
+        int n = 0;
+        try {
+            android.content.res.AssetManager am = c.getAssets();
+            String[] engines = am.list(ASSET_PREFIX);
+            if (engines == null) return 0;
+            for (String eng : engines) {
+                String[] files = am.list(ASSET_PREFIX + eng);
+                if (files == null) continue;
+                File d = new File(root, eng);
+                if (!d.exists()) d.mkdirs();
+                for (String fn : files) {
+                    if (fn.startsWith(".")) continue;
+                    java.io.InputStream in = null;
+                    java.io.FileOutputStream os = null;
+                    try {
+                        in = am.open(ASSET_PREFIX + eng + "/" + fn);
+                        os = new java.io.FileOutputStream(new File(d, fn));
+                        byte[] buf = new byte[65536];
+                        int r;
+                        while ((r = in.read(buf)) > 0) os.write(buf, 0, r);
+                        n++;
+                    } catch (Exception e) {
+                        Log.w(TAG, "释放失败 " + eng + "/" + fn + ": " + e.getMessage());
+                    } finally {
+                        if (in != null) try { in.close(); } catch (Exception ignored) {}
+                        if (os != null) try { os.close(); } catch (Exception ignored) {}
+                    }
+                }
+            }
+            new File(root, STAMP).createNewFile();
+        } catch (Exception e) {
+            Log.e(TAG, "释放异常", e);
         }
-        return s;
+        return n;
     }
 }

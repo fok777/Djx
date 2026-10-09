@@ -60,10 +60,22 @@ zo.write('build/classes.dex', 'classes.dex')
 if os.path.exists('assets/tools_data.json'):
     zo.write('assets/tools_data.json', 'assets/tools_data.json')
 
-# 引擎资产 -> assets/engine/<引擎>/<文件>
-# 用 assets 而非 lib/：这些是"由代码显式加载"的可执行/库，
-# 放 lib/ 会被系统当 JNI 库处理，且 <5MB 的会被压缩导致无法直接 exec。
-n_so = n_all = 0
+# 引擎资产分两处：
+#
+#   lib/arm64-v8a/   —— 所有 .so 与可执行文件（blutter PIE、frida-server）
+#      为什么不放 assets/：Android targetSdk >= 29 起，SELinux 禁止
+#      untrusted_app 对自己应用私有目录（app_data_file）里的文件 execve()。
+#      这不是 chmod +x 能绕过的。文件必须在 nativeLibraryDir
+#      （/data/app/<pkg>/lib/arm64/），配合 extractNativeLibs=true 由系统
+#      在安装时提取，那里的 SELinux 标签才允许执行。
+#      dlopen 也一样：从 nativeLibraryDir 加载最稳。
+#
+#   assets/engine/   —— 只读数据（jar、js、json、配置）
+#      这些不需要执行，放 assets 即可。
+#
+# 必须用 STORED（不压缩）：压缩过的 ELF 无法 mmap 执行。
+ABI = 'arm64-v8a'
+n_lib = n_asset = n_all = 0
 for eng in sorted(os.listdir(engine_src)):
     d = os.path.join(engine_src, eng)
     if not os.path.isdir(d):
@@ -74,17 +86,23 @@ for eng in sorted(os.listdir(engine_src)):
                 continue
             full = os.path.join(root, fn)
             rel = os.path.relpath(full, engine_src).replace(os.sep, '/')
-            # 引擎二进制用 STORED（不压缩）：释放时无需解压，190MB 明显更快
-            zi = zipfile.ZipInfo('assets/engine/' + rel, date_time=(2024, 1, 1, 0, 0, 0))
+            is_exec = fn.endswith('.so') or fn.endswith('.jar') is False and '.' not in fn
+            # .so 与无扩展名文件（frida-server 之类）走 lib/；其余走 assets/
+            if fn.endswith('.so') or ('.' not in fn and not fn.endswith('.jar')):
+                arc = 'lib/%s/%s' % (ABI, fn)
+                n_lib += 1
+            else:
+                arc = 'assets/engine/' + rel
+                n_asset += 1
+            zi = zipfile.ZipInfo(arc, date_time=(2024, 1, 1, 0, 0, 0))
             zi.compress_type = zipfile.ZIP_STORED
-            zi.external_attr = 0o644 << 16
+            zi.external_attr = 0o755 << 16
             with open(full, 'rb') as fh:
                 zo.writestr(zi, fh.read())
             n_all += 1
-            if fn.endswith('.so'):
-                n_so += 1
 z.close(); zo.close()
-print(f'引擎资产: {n_all} 个文件（其中 .so {n_so} 个）')
+print(f'引擎资产: {n_all} 个  →  lib/{ABI}/ {n_lib} 个（可 exec/dlopen）'
+      f', assets/engine/ {n_asset} 个（只读数据）')
 print('tools_data:', 'assets/tools_data.json' in zipfile.ZipFile('build/r2b.apk').namelist())
 PYCODE
 echo "--- APK 体积 ---"; ls -lh build/r2b.apk | awk '{print $5, $9}'
@@ -98,6 +116,8 @@ for n in names:
         p = n.split('/')
         if len(p) >= 4:
             c[p[2]] += 1
+    elif n.startswith('lib/'):
+        c['lib(可执行)'] += 1
 print('::notice::apk-entries=%d' % len(names))
 for k, v in sorted(c.items()):
     print('::notice::apk-engine-%s=%d' % (k, v))

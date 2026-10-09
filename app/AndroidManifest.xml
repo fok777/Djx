@@ -17,13 +17,15 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- 引导用户把本应用加入电池优化白名单 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
-    <!-- Termux 执行通道：装了 Termux 就能跑真实 radare2 / blutter / frida -->
+    <!-- Termux 执行通道（可选增强）：装了 Termux 就能跑 frida / unidbg 等 -->
     <uses-permission android:name="com.termux.permission.RUN_COMMAND"/>
+    <!-- 开机自启 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 
     <application android:label="R2B 逆向" android:allowBackup="true"
         android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round"
         android:hardwareAccelerated="true" android:debuggable="false"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        android:theme="@android:style/Theme.Material.Light.NoActionBar" android:extractNativeLibs="true">
 
         <activity android:name=".MainActivity" android:exported="true"
             android:launchMode="singleTop"
@@ -33,6 +35,17 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+
+        <!-- 开机 / 包更新后自动拉起服务（需用户在设置里开过自动启动） -->
+        <receiver android:name=".BootReceiver" android:exported="true"
+            android:directBootAware="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
 
         <!-- MCP 服务跑在前台 Service 里，与 Activity 解耦：
              Activity 被回收不影响服务运行，这是修复"挂后台闪退"的关键。 -->
