@@ -615,6 +615,7 @@ public final class ToolExecutor {
 
         // 降级：JNI 桥（com.r2aibridge.R2Core），签名不可考，
         // 任何一步失败都降级，绝不让它把进程带崩。
+        cmd = cmd != null ? cmd : defaultR2Cmd(n);
         try {
             Class<?> c = Class.forName("com.r2aibridge.R2Core");
             java.lang.reflect.Method init = c.getMethod("initR2Core");

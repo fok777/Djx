@@ -26,6 +26,7 @@ import android.widget.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.InputStream;
 import java.util.List;
 import java.util.ArrayList;
@@ -160,6 +161,7 @@ public class MainActivity extends Activity {
         toolExec = new ToolExecutor(this);
 
         bindServiceLog();       // 接收前台服务的日志
+        askTermuxPermission();  // Termux 通道：装了就能跑真实引擎
         syncServiceState();     // 与实际运行状态对齐（进程可能已被杀）
         askBatteryWhitelist();  // 引导加入电池优化白名单，否则后台易被杀
     }
@@ -802,6 +804,51 @@ public class MainActivity extends Activity {
             return out.getAbsolutePath();
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    /** Termux 授权：装了 Termux 就申请 RUN_COMMAND 权限，让工具能真跑。 */
+    void askTermuxPermission() {
+        if (toolExec == null) toolExec = new ToolExecutor(this);
+        TermuxExecutor tx = toolExec.termux();
+        if (!tx.installed()) {
+            appendLog("未检测到 Termux，工具将只用内置 Java 引擎（能力有限）");
+            return;
+        }
+        if (tx.hasPermission()) {
+            appendLog("Termux 通道就绪");
+            return;
+        }
+        new AlertDialog.Builder(this)
+            .setTitle("启用 Termux 通道")
+            .setMessage("检测到已安装 Termux。授予 RUN_COMMAND 权限后，"
+                    + "工具可执行真实的 radare2 / blutter / frida / unidbg，"
+                    + "能力远超内置解析。\n\n"
+                    + "若授权后仍失败，需在 Termux 里执行：\n"
+                    + "echo allow-external-apps=true >> ~/.termux/termux.properties")
+            .setPositiveButton("授权", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) {
+                    if (Build.VERSION.SDK_INT >= 23) {
+                        requestPermissions(new String[]{TermuxExecutor.PERMISSION}, 202);
+                    }
+                }
+            })
+            .setNegativeButton("暂不", null)
+            .show();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
+        super.onRequestPermissionsResult(code, perms, res);
+        if (code == 202 && res.length > 0
+                && res[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            appendLog("Termux 权限已授予");
+            // 探测装了哪些真实引擎
+            new Thread(new Runnable() { public void run() {
+                if (toolExec == null) return;
+                final String p = toolExec.termux().probe();
+                ui.post(new Runnable() { public void run() { appendLog("引擎探测: " + p); } });
+            } }).start();
         }
     }
 
