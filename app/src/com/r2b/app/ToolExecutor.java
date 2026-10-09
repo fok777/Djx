@@ -623,8 +623,6 @@ public final class ToolExecutor {
             Object inst = c.newInstance();
             Object r = init.invoke(inst);
             out.put("bridge_init", String.valueOf(r));
-            String cmd = opt(a, "command", "cmd");
-            if (cmd == null) cmd = "?V";
             Object res = exec.invoke(inst, cmd);
             out.put("command", cmd);
             out.put("result", String.valueOf(res));
