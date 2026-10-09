@@ -128,25 +128,22 @@ public final class FridaChannel {
             File dir = new File(c.getFilesDir(), "frida");
             if (!dir.exists()) dir.mkdirs();
             File cfg = new File(dir, "libfrida-gadget.config");
-            String content;
+            StringBuilder cb = new StringBuilder();
+            cb.append("{\n");
+            cb.append("  \"interaction\": {\n");
             if (scriptPath != null && !scriptPath.isEmpty()) {
-                content = "{\\n"
-                        + "  \"interaction\": {\\n"
-                        + "    \"type\": \"script\",\\n"
-                        + "    \"path\": \\"" + scriptPath + "\\",\\n"
-                        + "    \"on_load\": \"resume\"\\n"
-                        + "  }\\n"
-                        + "}\\n";
+                cb.append("    \"type\": \"script\",\n");
+                cb.append("    \"path\": \"").append(scriptPath).append("\",\n");
+                cb.append("    \"on_load\": \"resume\"\n");
             } else {
-                content = "{\\n"
-                        + "  \"interaction\": {\\n"
-                        + "    \"type\": \"listen\",\\n"
-                        + "    \"address\": \"127.0.0.1\",\\n"
-                        + "    \"port\": " + DEFAULT_PORT + ",\\n"
-                        + "    \"on_load\": \"wait\"\\n"
-                        + "  }\\n"
-                        + "}\\n";
+                cb.append("    \"type\": \"listen\",\n");
+                cb.append("    \"address\": \"127.0.0.1\",\n");
+                cb.append("    \"port\": ").append(DEFAULT_PORT).append(",\n");
+                cb.append("    \"on_load\": \"wait\"\n");
             }
+            cb.append("  }\n");
+            cb.append("}\n");
+            String content = cb.toString();
             FileOutputStream os = new FileOutputStream(cfg);
             os.write(content.getBytes("UTF-8"));
             os.close();
