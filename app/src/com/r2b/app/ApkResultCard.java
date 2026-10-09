@@ -119,6 +119,17 @@ public final class ApkResultCard {
         card.addView(acts, actsLp);
     }
 
+    /** 往现有卡片末尾追加一段结果（自动分析时逐段填充）。 */
+    public static void appendSection(Context c, final LinearLayout card,
+                                     final String title, final String body) {
+        if (card == null) return;
+        final View v = section(c, title, body == null ? "" : body, 0xFF202124);
+        card.post(new Runnable() { public void run() {
+            card.setVisibility(View.VISIBLE);
+            card.addView(v);
+        } });
+    }
+
     /** 展示任意一段分析结果（用于后续工具结果的回显）。 */
     public static void showResult(Context c, LinearLayout card, String title, String body) {
         card.removeAllViews();

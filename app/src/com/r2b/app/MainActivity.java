@@ -719,7 +719,12 @@ public class MainActivity extends Activity {
         if (serverOn) stopMcp(); else startMcp();
     }
 
+    /** 完整日志缓冲：复制时用它，而不是只读可见的 logView。 */
+    private final StringBuilder fullLog = new StringBuilder();
+
     void appendLog(final String line) {
+        if (line == null) return;
+        fullLog.append("\n").append(line);
         if (logView == null) return;
         ui.post(new Runnable() { public void run() {
             logView.append("\n" + line);
@@ -884,25 +889,74 @@ public class MainActivity extends Activity {
         } }, 300);
     }
 
+    /**
+     * 复制日志。
+     *
+     * 之前"点了没反应"的原因有两个：
+     *   1. 只取 logView 的文本——主界面上 logView 属于隐藏的服务面板，
+     *      内容可能是空的或过时的
+     *   2. setPrimaryClip 在部分 ROM 上静默失败，没有任何提示
+     *
+     * 现在：优先用完整缓冲 fullLog（无论当前在哪一页都完整），
+     * 复制同时**一定**写一份到导出目录，并在 Toast 里给出路径——
+     * 剪贴板靠不住时用户至少有文件可拿。
+     */
     void copyAll() {
-        String s = (logView != null && logView.getText() != null)
-                ? logView.getText().toString() : "";
+        StringBuilder sb = new StringBuilder();
+        String svc = McpForegroundService.bufferedLog();
+        if (svc != null && svc.length() > 0) {
+            sb.append("===== 服务日志 =====\n").append(sv.trim()).append("\n");
+        }
+        if (fullLog.length() > 0) {
+            sb.append("\n===== 操作日志 =====\n").append(fullLog.toString().trim());
+        }
+        if (logView != null && logView.getText() != null) {
+            String v = logView.getText().toString();
+            if (v.length() > sb.length()) sb.setLength(0) ;
+            if (v.length() > 0 && sb.length() == 0) sb.append(v);
+        }
+        String s = sb.toString().trim();
         if (s.isEmpty()) {
             toast("日志为空，无可复制");
             return;
         }
+        // 无论如何先落盘，保证拿得到
+        File saved = saveLogToFile(s);
+        boolean ok = false;
         try {
-            ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            if (cm == null) {
-                fallbackSaveLog(s);
-                return;
+            android.content.ClipboardManager cm =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm != null) {
+                cm.setPrimaryClip(ClipData.newPlainText("R2B 日志", s));
+                ok = true;
             }
-            cm.setPrimaryClip(ClipData.newPlainText("R2B 日志", s));
-            toast("已复制 " + s.length() + " 字符到剪贴板");
         } catch (Exception e) {
-            // 剪贴板不可用（部分 ROM / 无 GMS）时退回写文件，
-            // 至少让用户拿到内容，而不是点了没反应
-            fallbackSaveLog(s);
+            appendLog("剪贴板写入失败: " + e.getMessage());
+        }
+        if (ok) {
+            toast("已复制 " + s.length() + " 字符\n同时保存到: "
+                    + (saved == null ? "(失败)" : saved.getAbsolutePath()));
+        } else {
+            toast("剪贴板不可用，已保存到:\n"
+                    + (saved == null ? "(保存失败)" : saved.getAbsolutePath()));
+        }
+    }
+
+    /** 日志落盘到导出目录（用户能直接用文件管理器取到）。 */
+    private File saveLogToFile(String s) {
+        try {
+            File dir = exportDir();
+            if (!dir.exists() && !dir.mkdirs()) {
+                dir = getExternalFilesDir(null);
+            }
+            File f = new File(dir, "r2b_log_" + System.currentTimeMillis() + ".txt");
+            java.io.FileOutputStream os = new java.io.FileOutputStream(f);
+            os.write(s.getBytes("UTF-8"));
+            os.close();
+            if (fullLog.length() == 0) fullLog.append(s);
+            return f;
+        } catch (Exception e) {
+            return null;
         }
     }
 
@@ -1193,7 +1247,113 @@ public class MainActivity extends Activity {
                         });
                 appendLog("解析完成: " + (info == null ? "失败" : info.entries.size() + " 个条目"));
             } });
+            // 选完就自动往下跑，不用再手动点"分析 SO""提取字符串"
+            autoAnalyzeAfterParse(info, f);
         } }).start();
+    }
+
+    /**
+     * 解析完自动接着分析，不再要用户手动点。
+     *
+     * 顺序：
+     *   1. 提取 DEX 字符串（任何 APK 都有，最快出结果）
+     *   2. 有 native so 就解包主 so 并反汇编前几百字节
+     *   3. 是 Flutter 且有 libapp.so 就额外跑 blutter
+     * 每一步结果都追加到卡片，可以单独看。
+     */
+    void autoAnalyzeAfterParse(final NativeAnalyzer.ApkInfo info, final File apk) {
+        if (info == null) return;
+
+        // ---- 1. DEX 字符串 ----
+        Thread t1 = new Thread(new Runnable() { public void run() {
+            try {
+                if (toolExec == null) toolExec = new ToolExecutor(MainActivity.this);
+                String r = toolExec.execute("Dex_Strings", new org.json.JSONObject());
+                appendCardSection("DEX 字符串", r);
+            } catch (Throwable e) {
+                appendCardSection("DEX 字符串", "失败: " + e.getMessage());
+            }
+        } });
+        t1.start();
+
+        // ---- 2. 主 so 反汇编 ----
+        String mainSo = pickMainSo(info);
+        if (mainSo != null) {
+            final String entry = mainSo;
+            Thread t2 = new Thread(new Runnable() { public void run() {
+                try {
+                    File out = NativeAnalyzer.extractEntry(apk, entry, exportDir());
+                    if (out == null) {
+                        appendCardSection("SO 反汇编", "解包失败: " + entry);
+                        return;
+                    }
+                    appendLog("自动解包: " + entry + " -> " + out.getAbsolutePath());
+                    if (toolExec == null) toolExec = new ToolExecutor(MainActivity.this);
+                    org.json.JSONObject a = new org.json.JSONObject();
+                    a.put("so", out.getAbsolutePath());
+                    a.put("path", out.getAbsolutePath());
+                    a.put("file", out.getAbsolutePath());
+                    a.put("offset", "0");
+                    a.put("length", "4096");
+                    a.put("arch", "arm64");
+                    String r = toolExec.execute("Capstone_Disasm", a);
+                    appendCardSection("SO 反汇编 (" + out.getName() + ")", r);
+                } catch (Throwable e) {
+                    appendCardSection("SO 反汇编", "失败: " + e.getMessage());
+                }
+            } });
+            t2.start();
+        }
+
+        // ---- 3. Flutter：libapp.so ----
+        if (info.hasFlutter) {
+            final String appEntry = findEntry(info, "libapp.so");
+            if (appEntry != null) {
+                Thread t3 = new Thread(new Runnable() { public void run() {
+                    try {
+                        File out = NativeAnalyzer.extractEntry(apk, appEntry, exportDir());
+                        if (out == null) return;
+                        if (toolExec == null) toolExec = new ToolExecutor(MainActivity.this);
+                        org.json.JSONObject a = new org.json.JSONObject();
+                        a.put("so", out.getAbsolutePath());
+                        a.put("path", out.getAbsolutePath());
+                        a.put("apk_path", apk.getAbsolutePath());
+                        String r = toolExec.execute("Blutter_Analyze", a);
+                        appendCardSection("Flutter 符号", r);
+                    } catch (Throwable e) {
+                        appendCardSection("Flutter 符号", "失败: " + e.getMessage());
+                    }
+                } });
+                t3.start();
+            }
+        }
+    }
+
+    /** 选一个值得看的主 so：优先 Flutter/Unity 的，其次体积大的。 */
+    String pickMainSo(NativeAnalyzer.ApkInfo info) {
+        if (info.libs == null || info.libs.isEmpty()) return null;
+        String[] pref = {"libapp.so", "libil2cpp.so", "libflutter.so",
+                "libreactnativejni.so", "libunity.so"};
+        for (String p : pref) {
+            String e = findEntry(info, p);
+            if (e != null) return e;
+        }
+        return info.libs.get(0);
+    }
+
+    String findEntry(NativeAnalyzer.ApkInfo info, String name) {
+        if (info.libs == null) return null;
+        for (String l : info.libs) {
+            if (l.endsWith(name)) return l;
+        }
+        return null;
+    }
+
+    /** 后台线程里往卡片追加一段结果。 */
+    void appendCardSection(final String title, final String body) {
+        ui.post(new Runnable() { public void run() {
+            ApkResultCard.appendSection(MainActivity.this, apkCard, title, body);
+        } });
     }
 
     /** 把 ACTION_OPEN_DOCUMENT_TREE 的 tree uri 转成可读路径。 */
