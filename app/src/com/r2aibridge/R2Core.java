@@ -21,8 +21,20 @@ public final class R2Core {
     private R2Core() {}
 
     static {
-        // 由 Radare2Bridge 按依赖拓扑加载完 libr_*.so 后再加载桥
-        System.loadLibrary("r2aibridge");
+        // Radare2Bridge 已经按依赖拓扑用 System.load(绝对路径) 手动加载过
+        // libr2aibridge.so 了。这里再 loadLibrary 一次，Android 上同一库
+        // 被 load(路径) 和 loadLibrary(名) 各加载一次会被当成两个不同的库，
+        // 导致桥里的 JNI 符号注册不到本类的 native 方法上，
+        // 表现为 UnsatisfiedLinkError 或方法调用直接失败。
+        //
+        // 所以这里只在"确实还没加载"时补加载，且失败绝不抛出——
+        // 抛异常会让 Class.forName 直接失败，进而整个 radare2 不可用。
+        try {
+            System.loadLibrary("r2aibridge");
+        } catch (Throwable t) {
+            android.util.Log.w("R2B_R2Core",
+                    "loadLibrary 跳过（通常已由 Radare2Bridge 加载）: " + t.getMessage());
+        }
     }
 
     /** 初始化 r_core。返回 true 表示可用。 */

@@ -147,6 +147,8 @@ public final class Radare2Bridge {
                     System.load(f.getAbsolutePath());
                     rep.loaded.add(n);
                 } catch (Throwable t) {
+                Log.w(TAG, "加载失败 " + n + ": " + t.getClass().getSimpleName()
+                        + ": " + t.getMessage());
                     // 单个库失败不中断：记下来继续，最后看桥能不能用
                     Log.w(TAG, "加载失败 " + n + ": " + t.getMessage());
                     if (rep.error == null) {

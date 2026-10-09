@@ -156,6 +156,10 @@ public class MainActivity extends Activity {
         logView.setTextSize(12);
         logView.setTypeface(Typeface.MONOSPACE);
         logView.setPadding(dp(10), dp(10), 0, 0);
+        // 长按直接选中日志，不依赖剪贴板
+        logView.setTextIsSelectable(true);
+        logView.setFocusable(true);
+        logView.setFocusableInTouchMode(true);
         svcView.addView(logView);
         root.addView(svcView);
 
@@ -176,6 +180,8 @@ public class MainActivity extends Activity {
         statusText.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { toggleMcp(); } });
         pick.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT); i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("*/*"); startActivityForResult(i, 101); } });
         toolListBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { showToolsDialog(); } });
+        // 服务页这个 copyAll 是独立对象，之前完全没绑事件
+        copyAll.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { copyAll(); } });
         copyLog.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { copyAll(); } });
         viewLog.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
             String c = collectAllLog();
@@ -1145,18 +1151,71 @@ public class MainActivity extends Activity {
         b.setBackground(g);
         return b;
     }
-    LinearLayout svcRow(String label, String url) {
+    /**
+     * 地址行。
+     *
+     * 之前"复制"按钮从创建到返回都没绑 OnClickListener——点了当然没反应。
+     * 同时给地址文本开了 setTextIsSelectable：剪贴板 API 在部分 ROM 上
+     * 静默失败，长按手动选中是唯一不依赖任何 API 的兜底路径。
+     */
+    LinearLayout svcRow(String label, final String url) {
         LinearLayout r = new LinearLayout(this);
         r.setGravity(Gravity.CENTER_VERTICAL);
         TextView l = tv(label, 14, 0xFF5F6368, false);
         LinearLayout.LayoutParams ll = new LinearLayout.LayoutParams(dp(60), -1);
         r.addView(l, ll);
-        TextView u = tv(url, 14, 0xFF202124, false);
+        final TextView u = tv(url, 14, 0xFF202124, false);
         LinearLayout.LayoutParams ul = new LinearLayout.LayoutParams(0, -1, 1f);
         r.addView(u, ul);
+        // 长按可选中复制，绕开剪贴板
+        u.setTextIsSelectable(true);
+        u.setFocusable(true);
+        u.setFocusableInTouchMode(true);
+        u.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { doCopy(url, "地址"); }
+        });
         Button c = pill("复制", 0xFFEEF1F5, 0xFF1A73E8);
+        c.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { doCopy(url, label + "地址"); }
+        });
         r.addView(c);
         return r;
+    }
+
+    /**
+     * 统一的复制入口。
+     *
+     * 剪贴板在部分 ROM 上会静默失败（setPrimaryClip 不抛异常但没写进去），
+     * 所以这里写完立刻读回来校验，失败就告诉用户并建议长按选中——
+     * 不再出现"点了没反应、也不知道成没成功"的情况。
+     */
+    void doCopy(String text, String what) {
+        if (text == null || text.isEmpty()) { toast("没有可复制的内容"); return; }
+        boolean ok = false;
+        String err = null;
+        try {
+            android.content.ClipboardManager cm =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm != null) {
+                cm.setPrimaryClip(ClipData.newPlainText(what, text));
+                // 读回来校验
+                ok = cm.hasPrimaryClip()
+                        && cm.getPrimaryClip() != null
+                        && cm.getPrimaryClip().getItemCount() > 0
+                        && text.equals(String.valueOf(
+                                cm.getPrimaryClip().getItemAt(0).getText()));
+            } else {
+                err = "剪贴板服务为空";
+            }
+        } catch (Exception e) {
+            err = e.getMessage();
+        }
+        if (ok) {
+            toast("已复制 " + what);
+        } else {
+            toast("复制失败" + (err == null ? "" : "（" + err + "）")
+                    + "，请长按文本手动选中复制");
+        }
     }
     GradientDrawable roundRect(int color, int r) {
         GradientDrawable g = new GradientDrawable();
