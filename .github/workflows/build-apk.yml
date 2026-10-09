@@ -3,6 +3,7 @@ name: Build R2B APK (Release)
 on:
   push:
     branches: [ main, master, build-test ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
@@ -62,42 +63,24 @@ jobs:
           export APKSIGN=$ANDROID_HOME/build-tools/35.0.0/apksigner
           bash build.sh 2>&1 | tee build.log
 
-      - name: Dump build log (diagnostic)
-        working-directory: app
-        continue-on-error: true
-        run: |
-          echo "::notice::buildlog-exists=$(test -f build.log && echo yes || echo no)"
-          echo "::notice::buildlog-tail=$(tail -25 build.log 2>/dev/null | tr '\n' '|')"
-          echo "::notice::ls-all=$(ls -la | tr '\n' '|')"
-
       # 诊断意图：日志下载域名在本环境被拦，故用 ::notice:: 把关键信息回传，
       # 可从 check-runs annotations API 读到。
       - name: Verify Release (debuggable must be false)
         working-directory: app
-        continue-on-error: true
         run: |
           AAPT=$ANDROID_HOME/build-tools/35.0.0/aapt2
           APKSIGN=$ANDROID_HOME/build-tools/35.0.0/apksigner
           APK=R2B.app.apk
-          echo "::notice::pwd=$(pwd) files=$(ls | tr '\n' ' ')"
-          if [ -f "$APK" ]; then
-            echo "::notice::apk-exists=yes size=$(stat -c%s "$APK")"
-          else
-            echo "::error::apk-missing R2B.app.apk"
-            exit 1
-          fi
+          [ -f "$APK" ] || { echo "::error::缺少 $APK"; exit 1; }
+          echo "APK 大小: $(stat -c%s "$APK") 字节"
           OUT=$($AAPT dump badging "$APK" 2>&1)
-          echo "::notice::badging-rc=$?"
-          echo "::notice::badging-head=$(echo "$OUT" | head -4 | tr '\n' ' ')"
-          echo "::notice::has-debuggable-flag=$(echo "$OUT" | grep -c 'application-debuggable')"
-          echo "::notice::manifest-debuggable-line=$(grep -n 'debuggable' AndroidManifest.xml || echo none)"
-          echo "--- 签名 ---"
-          $APKSIGN verify --print-certs "$APK" 2>&1 | head -5 || true
+          echo "$OUT" | grep -E "^package|sdkVersion" || true
           if echo "$OUT" | grep -q "application-debuggable"; then
-            echo "::error::这是 debug 包（application-debuggable 命中）"
-            exit 1
+            echo "::error::这是 debug 包"; exit 1
           fi
           echo "OK: 非 debug（Release）"
+          echo "--- 签名 ---"
+          $APKSIGN verify --print-certs "$APK" 2>&1 | head -6 || true
 
       - name: Upload build log
         if: always()
