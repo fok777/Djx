@@ -34,6 +34,10 @@ import java.util.List;
  */
 public class McpForegroundService extends Service {
 
+    /** 服务是否在跑。供 Activity 判断要不要重复启动。 */
+    private static volatile boolean running = false;
+    public static boolean isRunning() { return running; }
+
     private static final String TAG = "R2B_Svc";
     private static final int NOTIFY_ID = 5051;
     private static final String CHANNEL_ID = "r2b_mcp";
@@ -159,6 +163,7 @@ public class McpForegroundService extends Service {
             mcp.executor().setCurrentApk(lastApk);
         }
         mcp.start();
+        running = true;
 
         // 起服务顺带确保引擎已释放（幂等，已释放则跳过）
         new Thread(new Runnable() {
@@ -172,6 +177,8 @@ public class McpForegroundService extends Service {
                         emit("引擎数据已就绪");
                     }
                     emit(EngineUnpacker.describe(McpForegroundService.this));
+                    emit("nativeLibraryDir 库清单: " + EngineUnpacker.listNativeLibs(
+                            McpForegroundService.this));
                     // 可执行文件必须在 nativeLibraryDir：targetSdk>=29 起
                     // SELinux 禁止 execve 应用私有目录里的文件，chmod 无法绕过。
                     File fx = EngineUnpacker.findExecutable(
@@ -281,6 +288,7 @@ public class McpForegroundService extends Service {
         emit("MCP 服务停止");
         if (mcp != null) {
             mcp.stop();
+            running = false;
             mcp = null;
         }
         releaseLocks();

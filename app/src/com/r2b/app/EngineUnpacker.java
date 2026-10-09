@@ -123,11 +123,43 @@ public final class EngineUnpacker {
             }
             is.close();
             int code = p.waitFor();
-            return "exit=" + code + " 输出: "
-                    + new String(bo.toByteArray(), "UTF-8").trim();
+            String out = new String(bo.toByteArray(), "UTF-8").trim();
+            // CANNOT LINK EXECUTABLE 是 Android linker 的特有报错：
+            // 常见原因是缺 libc++_shared.so，或 _Unwind_* 这类
+            // 来自 libgcc/libunwind 的符号在目标 ROM 上找不到。
+            if (out.contains("CANNOT LINK EXECUTABLE")) {
+                String missing = "";
+                java.util.regex.Matcher m = java.util.regex.Pattern
+                        .compile("cannot locate symbol \\"([^\\"]+)\\"")
+                        .matcher(out);
+                if (m.find()) missing = m.group(1);
+                return "link失败 exit=" + code + " 缺符号=" + (missing.isEmpty() ? "?" : missing)
+                        + "\n  已设 LD_LIBRARY_PATH=" + libPath
+                        + "\n  该符号通常来自 libc++_shared.so / libunwind；"
+                        + "确认 nativeLibraryDir 下有这些库。"
+                        + "\n  原始: " + out.replace("\n", " | ");
+            }
+            return "exit=" + code + " 输出: " + out;
         } catch (Exception e) {
             return "exec 失败: " + e.getClass().getSimpleName() + ": " + e.getMessage();
         }
+    }
+
+    /**
+     * 列出 nativeLibraryDir 下的库名，用于排查 link 失败。
+     * 日志里能一眼看出缺了 libc++_shared.so 还是别的。
+     */
+    public static String listNativeLibs(Context c) {
+        File nd = nativeDir(c);
+        if (nd == null || !nd.isDirectory()) return "nativeLibraryDir 不可用";
+        File[] fs = nd.listFiles();
+        if (fs == null) return "(空)";
+        StringBuilder sb = new StringBuilder();
+        java.util.List<String> names = new java.util.ArrayList<String>();
+        for (File f : fs) names.add(f.getName());
+        java.util.Collections.sort(names);
+        for (String n : names) sb.append(n).append(' ');
+        return sb.toString().trim();
     }
 
     /** 状态摘要，写进日志。 */

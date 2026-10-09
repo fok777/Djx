@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.Context;
+import android.content.ClipboardManager;
+import android.content.ClipData;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.os.Build;
@@ -79,7 +81,11 @@ public class MainActivity extends Activity {
         tv.addView(title); tv.addView(sub2);
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, -1, 1f);
         top.addView(logo); top.addView(tv, tlp);
-        TextView gear = tv("⚙", 20, sub, false);
+        TextView gear = tv("\u2699", 20, sub, false);
+        gear.setPadding(dp(8), dp(4), dp(8), dp(4));
+        gear.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) { showSettings(); }
+        });
         top.addView(gear);
         root.addView(top, gap());
 
@@ -150,6 +156,14 @@ public class MainActivity extends Activity {
         logView.setPadding(dp(10), dp(10), 0, 0);
         svcView.addView(logView);
         root.addView(svcView);
+
+        // ===== 打开即自动启动 MCP 服务（黑猫原版行为）=====
+        // 用户不需要手动点"远程服务"再点启动——进 App 服务就该在跑。
+        // 用 SharedPreferences 记住开关，设置里可关。
+        if (android.preference.PreferenceManager.getDefaultSharedPreferences(this)
+                .getBoolean("auto_start_service", true)) {
+            autoStartMcp();
+        }
 
         // ===== 按钮事件 =====
         remote.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
@@ -750,14 +764,169 @@ public class MainActivity extends Activity {
         } }).start();
     }
 
+    /**
+     * 复制日志。
+     *
+     * 之前"复制没卵用"的三个原因：
+     *   1. 异常被 catch 后 ignored，失败了也不知道
+     *   2. 没有成功反馈，点了没反应
+     *   3. 日志很长时部分 ROM 的剪贴板会静默失败
+     * 现在：给 Toast 反馈；失败时改存文件并把路径显示出来。
+     */
+    /**
+     * 设置弹窗：文件导出路径 + 自动启动服务开关。
+     * 旧版就有"文件导出路径"这一项，分析结果需要落盘到用户能找到的地方。
+     */
+    void showSettings() {
+        final android.app.AlertDialog.Builder b =
+                new android.app.AlertDialog.Builder(this);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(14), dp(20), dp(6));
+
+        TextView t = tv("\u2699 设置", 16, 0xFF202124, true);
+        box.addView(t);
+
+        // ---- 文件导出路径 ----
+        box.addView(tv("文件导出路径", 12, 0xFF5F6368, true));
+        final TextView pathView = new TextView(this);
+        final String[] curPath = {exportDir().getAbsolutePath()};
+        pathView.setText(curPath[0]);
+        pathView.setTextSize(12);
+        pathView.setTextColor(0xFF1A73E8);
+        pathView.setPadding(0, dp(4), 0, dp(6));
+        box.addView(pathView);
+
+        Button pickDir = pill("选择目录", 0xFF1A73E8, 0xFFFFFFFF);
+        pickDir.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                try {
+                    Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                    i.putExtra("android.content.extra.SHOW_ADVANCED", true);
+                    startActivityForResult(i, 102);
+                } catch (Exception e) {
+                    toast("无法打开目录选择器: " + e.getMessage());
+                }
+            }
+        });
+        box.addView(pickDir, gap());
+
+        // ---- 自动启动服务 ----
+        final android.widget.CheckBox cb = new android.widget.CheckBox(this);
+        cb.setText("打开 App 时自动启动 MCP 服务");
+        cb.setTextSize(13);
+        cb.setChecked(android.preference.PreferenceManager
+                .getDefaultSharedPreferences(this)
+                .getBoolean("auto_start_service", true));
+        box.addView(cb);
+
+        final android.widget.CheckBox cbRoot = new android.widget.CheckBox(this);
+        cbRoot.setText("尝试以 Root 拉起 frida-server");
+        cbRoot.setTextSize(13);
+        cbRoot.setChecked(android.preference.PreferenceManager
+                .getDefaultSharedPreferences(this)
+                .getBoolean("auto_frida", false));
+        box.addView(cbRoot);
+
+        Button save = pill("保存配置", 0xFF188038, 0xFFFFFFFF);
+        box.addView(save, gap());
+
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        sv.addView(box);
+        b.setView(sv);
+        final android.app.AlertDialog dlg = b.create();
+        // 保存后关闭
+        save.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                android.preference.PreferenceManager.getDefaultSharedPreferences(
+                        MainActivity.this).edit()
+                        .putString("export_dir", curPath[0])
+                        .putBoolean("auto_start_service", cb.isChecked())
+                        .putBoolean("auto_frida", cbRoot.isChecked())
+                        .apply();
+                toast("配置已保存");
+                appendLog("导出路径: " + curPath[0]);
+                // 勾了自动启动且当前没跑，立刻起
+                if (cb.isChecked() && !McpForegroundService.isRunning()) {
+                    startMcp();
+                }
+                dlg.dismiss();
+            }
+        });
+        dlg.show();
+    }
+
+    /** 分析结果导出目录。默认放在公共 Download 下，方便取出。 */
+    File exportDir() {
+        String saved = android.preference.PreferenceManager
+                .getDefaultSharedPreferences(this).getString("export_dir", "");
+        if (saved != null && !saved.isEmpty()) return new File(saved);
+        File d = new File(android.os.Environment
+                .getExternalStoragePublicDirectory(
+                        android.os.Environment.DIRECTORY_DOWNLOADS),
+                "Flutter分析结果");
+        if (!d.exists()) d.mkdirs();
+        return d;
+    }
+
+    /**
+     * 打开 App 就自动把 MCP 服务拉起来。
+     * 延迟 300ms：等首帧绘制完，避免和 UI 抢资源导致卡顿。
+     */
+    void autoStartMcp() {
+        ui.postDelayed(new Runnable() { public void run() {
+            if (McpForegroundService.isRunning()) {
+                appendLog("MCP 服务已在运行");
+                return;
+            }
+            appendLog("自动启动 MCP 服务…");
+            startMcp();
+        } }, 300);
+    }
+
     void copyAll() {
+        String s = (logView != null && logView.getText() != null)
+                ? logView.getText().toString() : "";
+        if (s.isEmpty()) {
+            toast("日志为空，无可复制");
+            return;
+        }
         try {
-            String s = (logView != null ? logView.getText().toString() : "");
-            android.content.ClipData c = android.content.ClipData.newPlainText("R2B", s);
-            getSystemService(android.content.ClipboardManager.class);
-            ((android.content.ClipboardManager) getSystemService(android.content.ClipboardManager.class))
-                    .setPrimaryClip(c);
-        } catch (Exception ignored) {}
+            ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            if (cm == null) {
+                fallbackSaveLog(s);
+                return;
+            }
+            cm.setPrimaryClip(ClipData.newPlainText("R2B 日志", s));
+            toast("已复制 " + s.length() + " 字符到剪贴板");
+        } catch (Exception e) {
+            // 剪贴板不可用（部分 ROM / 无 GMS）时退回写文件，
+            // 至少让用户拿到内容，而不是点了没反应
+            fallbackSaveLog(s);
+        }
+    }
+
+    /** 剪贴板不可用时的兜底：写文件并提示路径。 */
+    private void fallbackSaveLog(String s) {
+        try {
+            File dir = new File(getExternalFilesDir(null), "r2b_logs");
+            if (!dir.exists()) dir.mkdirs();
+            File f = new File(dir, "log_" + System.currentTimeMillis() + ".txt");
+            java.io.FileOutputStream os = new java.io.FileOutputStream(f);
+            os.write(s.getBytes("UTF-8"));
+            os.close();
+            toast("剪贴板不可用，已存到: " + f.getAbsolutePath());
+            appendLog("日志已保存: " + f.getAbsolutePath());
+        } catch (Exception e2) {
+            toast("复制失败: " + e2.getMessage());
+        }
+    }
+
+    void toast(final String msg) {
+        ui.post(new Runnable() { public void run() {
+            android.widget.Toast.makeText(MainActivity.this, msg,
+                    android.widget.Toast.LENGTH_LONG).show();
+        } });
     }
 
     // ===== 工具方法 =====
@@ -967,6 +1136,27 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
+        // 102 = 选择导出目录
+        if (req == 102 && res == RESULT_OK && data != null && data.getData() != null) {
+            android.net.Uri tree = data.getData();
+            try {
+                // 授权持久化，重启后仍可写
+                getContentResolver().takePersistableUriPermission(tree,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+            } catch (Exception ignored) {}
+            String p = resolveTreePath(tree);
+            if (p != null) {
+                android.preference.PreferenceManager.getDefaultSharedPreferences(this)
+                        .edit().putString("export_dir", p).apply();
+                toast("导出目录已设为: " + p);
+                appendLog("导出目录: " + p);
+                showSettings();   // 重新弹出以刷新显示
+            } else {
+                toast("已选择但无法解析为路径，请用文件管理器类应用再选一次");
+            }
+            return;
+        }
         if (req != 101 || res != RESULT_OK || data == null || data.getData() == null) return;
         final android.net.Uri uri = data.getData();
         String shown = fileBox == null || fileBox.getText() == null
@@ -1006,10 +1196,39 @@ public class MainActivity extends Activity {
         } }).start();
     }
 
-    /** 卡片上的动作：真执行并把结果回显到卡片。 */
+    /** 把 ACTION_OPEN_DOCUMENT_TREE 的 tree uri 转成可读路径。 */
+    String resolveTreePath(android.net.Uri tree) {
+        if (tree == null) return null;
+        String s = tree.toString();
+        // content://com.android.externalstorage.documents/tree/primary:Download/xxx
+        int i = s.indexOf("/tree/");
+        if (i < 0) return null;
+        String seg = s.substring(i + 6);
+        try {
+            seg = java.net.URLDecoder.decode(seg, "UTF-8");
+        } catch (Exception ignored) {}
+        if (seg.startsWith("primary:")) {
+            return android.os.Environment.getExternalStorageDirectory()
+                    + "/" + seg.substring(8);
+        }
+        // 其它存储（SD 卡）无法直接拼路径，退回 /storage/
+        int colon = seg.indexOf(':');
+        if (colon > 0) return "/storage/" + seg.substring(colon + 1);
+        return seg;
+    }
+
+    /**
+     * 卡片上的动作：真执行并把结果回显到卡片。
+     *
+     * 关键修正：APK 里的 so 是 zip 条目名（如 assets/hkp/core.so），
+     * 不是磁盘路径。直接把它当路径传会给工具一个不存在的文件——
+     * 这就是之前"没有文件路径"的由来。这里先解包到导出目录，
+     * 再把真实绝对路径传给工具。
+     */
     void runToolAction(final String action, final String arg) {
         appendLog("执行: " + action + " " + arg);
-        ApkResultCard.showResult(this, apkCard, "执行中…", action);
+        ApkResultCard.showResult(this, apkCard, "执行中…", action
+                + (arg == null || arg.isEmpty() ? "" : "\n" + arg));
         new Thread(new Runnable() { public void run() {
             String title = action;
             String body;
@@ -1018,11 +1237,35 @@ public class MainActivity extends Activity {
                 if ("strings".equals(action)) {
                     body = toolExec.execute("Dex_Strings", new org.json.JSONObject());
                 } else {
-                    org.json.JSONObject a = new org.json.JSONObject();
-                    a.put("so", arg);
-                    a.put("path", arg);
-                    a.put("apk_path", toolExec.getCurrentApk());
-                    body = toolExec.execute("Blutter_Analyze", a);
+                    // 先把条目解包成真实文件
+                    String realPath = arg;
+                    String apk = toolExec.getCurrentApk();
+                    if (arg != null && !arg.isEmpty() && !new File(arg).isFile()
+                            && apk != null) {
+                        File out = NativeAnalyzer.extractEntry(
+                                new File(apk), arg, exportDir());
+                        if (out != null) {
+                            realPath = out.getAbsolutePath();
+                            appendLog("已解包: " + arg + " -> " + realPath);
+                        } else {
+                            appendLog("解包失败: " + arg);
+                        }
+                    }
+                    if (realPath == null) {
+                        body = "没有可分析的文件路径。\n"
+                                + "当前 APK: " + (apk == null ? "(未选择)" : apk) + "\n"
+                                + "条目: " + arg;
+                    } else {
+                        org.json.JSONObject a = new org.json.JSONObject();
+                        a.put("so", realPath);
+                        a.put("path", realPath);
+                        a.put("file", realPath);
+                        a.put("apk_path", apk);
+                        a.put("offset", "0");
+                        a.put("length", "4096");
+                        body = "文件: " + realPath + "\n\n"
+                                + toolExec.execute("Capstone_Disasm", a);
+                    }
                 }
             } catch (Throwable t) {
                 body = "失败: " + t.getClass().getSimpleName() + ": " + t.getMessage();
