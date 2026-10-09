@@ -903,9 +903,9 @@ public class MainActivity extends Activity {
      */
     void copyAll() {
         StringBuilder sb = new StringBuilder();
-        String svc = McpForegroundService.bufferedLog();
-        if (svc != null && svc.length() > 0) {
-            sb.append("===== 服务日志 =====\n").append(sv.trim()).append("\n");
+        String svcLog = McpForegroundService.bufferedLog();
+        if (svcLog != null && svcLog.length() > 0) {
+            sb.append("===== 服务日志 =====\n").append(svcLog.trim()).append("\n");
         }
         if (fullLog.length() > 0) {
             sb.append("\n===== 操作日志 =====\n").append(fullLog.toString().trim());
