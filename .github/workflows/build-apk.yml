@@ -58,6 +58,27 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME"
           ls "$ANDROID_HOME"
 
+      # radare2 本体（22 个 libr_*.so）不在仓库里，构建时从官方 release 取。
+      # 缺失会导致 R2_* 94 个 + Nav_* 23 个工具全部不可用。
+      - name: Fetch radare2 android-aarch64
+        run: |
+          set -x
+          mkdir -p assets/engine/radare2
+          cd /tmp
+          curl -sSL -o r2.tar.gz \
+            https://github.com/radareorg/radare2/releases/download/6.2.2/radare2-6.2.2-android-aarch64.tar.gz
+          ls -lh r2.tar.gz
+          mkdir -p r2x && tar -xzf r2.tar.gz -C r2x --strip-components=1
+          find r2x -name "libr_*.so" | head -30
+          N=$(find r2x -name "libr_*.so" | wc -l)
+          echo "::notice::radare2-libr-count=$N"
+          if [ "$N" -gt 0 ]; then
+            find r2x -name "libr_*.so" -exec cp {} "$GITHUB_WORKSPACE/assets/engine/radare2/" \;
+            find r2x -name "libcapstone*.so" -o -name "libdemumble*.so" | \
+              xargs -r -I{} cp {} "$GITHUB_WORKSPACE/assets/engine/radare2/" 2>/dev/null || true
+          fi
+          ls "$GITHUB_WORKSPACE/assets/engine/radare2/" | head -30
+
       - name: Build Release APK (not debuggable)
         working-directory: app
         run: |

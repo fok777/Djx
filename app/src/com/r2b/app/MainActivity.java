@@ -113,7 +113,7 @@ public class MainActivity extends Activity {
         int shownTotal = 0;
         JSONObject td0 = loadToolsData();
         if (td0 != null) shownTotal = td0.optInt("tool_total", 0);
-        logView.setText("工具列表已构建：" + shownTotal + " 个工具\n"
+        logView.setText("正在释放引擎资产…\n工具列表已构建：" + shownTotal + " 个工具\n"
             + "———— MCP 服务连接方式 Streamable HTTP ————\n"
             + "Radare2Blutter Mcp 服务启动在 0.0.0.0:5051 (LAN " + lanIp() + ")\n"
             + "———— Radare2Blutter Mcp 开始工作… ————");
@@ -126,7 +126,8 @@ public class MainActivity extends Activity {
 
         // ===== 按钮事件 =====
         remote.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
-            mainView.setVisibility(View.GONE); svcView.setVisibility(View.VISIBLE); startMcp(); } });
+            mainView.setVisibility(View.GONE); svcView.setVisibility(View.VISIBLE);
+            unpackEngines(); startMcp(); } });
         back.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
             svcView.setVisibility(View.GONE); mainView.setVisibility(View.VISIBLE); } });
         statusText.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { startMcp(); } });
@@ -397,6 +398,37 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             return "{}";
         }
+    }
+
+    /** 后台释放引擎资产；已在主线程外调用。 */
+    void unpackEngines() {
+        new Thread(new Runnable() { public void run() {
+            try {
+                final EngineUnpacker u = new EngineUnpacker(MainActivity.this,
+                        new EngineUnpacker.Progress() {
+                            public void onProgress(final String m) {
+                                ui.post(new Runnable() { public void run() {
+                                    if (logView != null) logView.append("\n" + m);
+                                } });
+                            }
+                        });
+                if (u.isUnpacked()) {
+                    ui.post(new Runnable() { public void run() {
+                        if (logView != null) logView.append("\n引擎已就绪\n" + EngineUnpacker.describe(MainActivity.this));
+                    } });
+                    return;
+                }
+                final int n = u.unpack();
+                ui.post(new Runnable() { public void run() {
+                    if (logView != null) logView.append("\n引擎释放完成：" + n + " 个文件\n"
+                            + EngineUnpacker.describe(MainActivity.this));
+                } });
+            } catch (final Exception e) {
+                ui.post(new Runnable() { public void run() {
+                    if (logView != null) logView.append("\n引擎释放失败: " + e.getMessage());
+                } });
+            }
+        } }).start();
     }
 
     void startMcp() {

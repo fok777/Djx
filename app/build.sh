@@ -45,15 +45,45 @@ echo "[2/5] javac17 (UTF-8)"; "$JC" -source 1.8 -target 1.8 -encoding UTF-8 \
   -bootclasspath "$AJ" -cp "$AJ" -d build/classes \
   build/java/com/r2b/app/*.java src/com/r2b/app/*.java
 echo "[3/5] d8 dex"; "$D8" --release --lib "$AJ" --min-api 24 --output build build/classes/com/r2b/app/*.class
-echo "[4/5] 打包 classes.dex + assets"; python3 -c "
-import zipfile,os
-z=zipfile.ZipFile('build/base.apk'); zo=zipfile.ZipFile('build/r2b.apk','w',zipfile.ZIP_DEFLATED)
-for i in z.infolist(): zo.writestr(i,z.read(i.filename))
-zo.write('build/classes.dex','classes.dex')
-if os.path.exists('assets/tools_data.json'): zo.write('assets/tools_data.json','assets/tools_data.json')
+echo "[4/5] 打包 classes.dex + assets + 引擎资产"
+ENGINE_SRC="$(cd .. && pwd)/assets/engine"
+python3 - "$ENGINE_SRC" <<'PYCODE'
+import zipfile, os, sys
+engine_src = sys.argv[1]
+z = zipfile.ZipFile('build/base.apk')
+zo = zipfile.ZipFile('build/r2b.apk', 'w', zipfile.ZIP_DEFLATED)
+for i in z.infolist():
+    zo.writestr(i, z.read(i.filename))
+zo.write('build/classes.dex', 'classes.dex')
+
+# 工具表
+if os.path.exists('assets/tools_data.json'):
+    zo.write('assets/tools_data.json', 'assets/tools_data.json')
+
+# 引擎资产 -> assets/engine/<引擎>/<文件>
+# 用 assets 而非 lib/：这些是"由代码显式加载"的可执行/库，
+# 放 lib/ 会被系统当 JNI 库处理，且 <5MB 的会被压缩导致无法直接 exec。
+n_so = n_all = 0
+for eng in sorted(os.listdir(engine_src)):
+    d = os.path.join(engine_src, eng)
+    if not os.path.isdir(d):
+        continue
+    for root, _, files in os.walk(d):
+        for fn in files:
+            if fn.startswith('.'):
+                continue
+            full = os.path.join(root, fn)
+            rel = os.path.relpath(full, engine_src).replace(os.sep, '/')
+            zo.write(full, 'assets/engine/' + rel)
+            n_all += 1
+            if fn.endswith('.so'):
+                n_so += 1
 z.close(); zo.close()
-print('assets:', 'assets/tools_data.json' in zipfile.ZipFile('build/r2b.apk').namelist())
-"
+print(f'引擎资产: {n_all} 个文件（其中 .so {n_so} 个）')
+print('tools_data:', 'assets/tools_data.json' in zipfile.ZipFile('build/r2b.apk').namelist())
+PYCODE
+echo "--- APK 体积 ---"; ls -lh build/r2b.apk | awk '{print $5, $9}'
+
 echo "[5/5] 签名 V1"; [ -f keystore.jks ] || keytool -genkeypair -keystore keystore.jks -alias r2b \
   -keyalg RSA -keysize 2048 -validity 3650 -storepass $SP -keypass $SP -dname "CN=R2B,O=R2B,C=US" 2>/dev/null
 jarsigner -keystore keystore.jks -storepass $SP build/r2b.apk r2b

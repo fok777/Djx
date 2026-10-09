@@ -1,11 +1,8 @@
-# 引擎资产体积大，不入库，用 tools/fetch_engines.py 或 install_engines.py 获取
-assets/engine/blutter/*.so
-assets/engine/frida/*
-assets/engine/unidbg/*.jar
-assets/engine/unidbg/*.so
-
+# 引擎资产需要打进 APK，因此入库（约 191MB）
+# 本地临时产物不入库
 __pycache__/
 *.pyc
 build/
 *.apk
 out_test/
+.idea/
