@@ -17,6 +17,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.preference.PreferenceManager;
 import android.view.Gravity;
 import android.view.View;
@@ -630,7 +631,6 @@ public class MainActivity extends Activity {
     }
     int dp(int d) { return (int) (d * getResources().getDisplayMetrics().density); }
 
-    @Override
     /** Activity 销毁：只解绑日志回调，绝不杀服务（服务独立存活）。 */
     @Override
     protected void onDestroy() {
