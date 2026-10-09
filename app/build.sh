@@ -45,6 +45,28 @@ echo "[2/5] javac17 (UTF-8)"; "$JC" -source 1.8 -target 1.8 -encoding UTF-8 \
   -bootclasspath "$AJ" -cp "$AJ" -d build/classes \
   build/java/com/r2b/app/*.java src/com/r2b/app/*.java
 echo "[3/5] d8 dex"; "$D8" --release --lib "$AJ" --min-api 24 --output build build/classes/com/r2b/app/*.class
+# ---- 3.5/5 unidbg jar → dex ----
+# unidbg 是 JVM jar，安卓跑的是 ART，必须用 d8 转成 dex 才能加载。
+# 转好后打进 assets/engine/unidbg/*.dex，运行时用 DexClassLoader 载入。
+# 引擎本身不需要 JVM：unidbg 用 unicorn2 backend 时只依赖
+# libunicorn.so（原生引擎）+ libunicorn_java.so（JNI binding），
+# 不走 JNA，所以 ART 上可以直接跑。
+UNIDBG_SRC="$(cd .. && pwd)/assets/engine/unidbg"
+UNIDBG_DEX="build/unidbg-dex"
+rm -rf "$UNIDBG_DEX"; mkdir -p "$UNIDBG_DEX"
+if [ -d "$UNIDBG_SRC" ]; then
+  JARS=""
+  for j in "$UNIDBG_SRC"/*.jar; do
+    [ -f "$j" ] && JARS="$JARS $j"
+  done
+  if [ -n "$JARS" ]; then
+    echo "  d8 转换 unidbg jar → dex"
+    # shellcheck disable=SC2086
+    "$D8" --release --lib "$AJ" --min-api 24 --output "$UNIDBG_DEX" $JARS 2>&1 | tail -3 || true
+    ls -lh "$UNIDBG_DEX"/classes*.dex 2>/dev/null | awk '{print "   ", $5, $9}'
+  fi
+fi
+
 echo "[4/5] 打包 classes.dex + assets + 引擎资产"
 ENGINE_SRC="$(cd .. && pwd)/assets/engine"
 python3 - "$ENGINE_SRC" <<'PYCODE'
@@ -94,12 +116,28 @@ for eng in sorted(os.listdir(engine_src)):
             else:
                 arc = 'assets/engine/' + rel
                 n_asset += 1
+            # jar 不需要打进去：运行时用的是 d8 转出的 dex
+            if fn.endswith('.jar'):
+                continue
             zi = zipfile.ZipInfo(arc, date_time=(2024, 1, 1, 0, 0, 0))
             zi.compress_type = zipfile.ZIP_STORED
             zi.external_attr = 0o755 << 16
             with open(full, 'rb') as fh:
                 zo.writestr(zi, fh.read())
             n_all += 1
+# unidbg dex（d8 从 jar 转出）
+n_dex = 0
+for dx in sorted(os.listdir('build/unidbg-dex')) if os.path.isdir('build/unidbg-dex') else []:
+    if not dx.endswith('.dex'):
+        continue
+    with open(os.path.join('build/unidbg-dex', dx), 'rb') as fh:
+        zi = zipfile.ZipInfo('assets/engine/unidbg/' + dx, date_time=(2024, 1, 1, 0, 0, 0))
+        zi.compress_type = zipfile.ZIP_DEFLATED
+        zo.writestr(zi, fh.read())
+    n_dex += 1
+if n_dex:
+    print('  unidbg dex: %d 个' % n_dex)
+
 z.close(); zo.close()
 print(f'引擎资产: {n_all} 个  →  lib/{ABI}/ {n_lib} 个（可 exec/dlopen）'
       f', assets/engine/ {n_asset} 个（只读数据）')

@@ -99,6 +99,7 @@ public final class ToolExecutor {
         // ---------- Frida 双通道 / 补丁会话 ----------
         if (n.startsWith("Frida_Channel")) { fridaChannel(a, out); return; }
         if (n.startsWith("Patch_Session")) { patchSession(a, out); return; }
+        if (n.startsWith("Ub_")) { unidbg(n, a, out); return; }
 
         // ---------- APK ----------
         if (n.equals("Apk_Open") || n.equals("Apk_Info") || n.equals("Apk_List")) {
@@ -226,8 +227,8 @@ public final class ToolExecutor {
 
     private String hintFor(String n) {
         if (n.startsWith("Ub_")) {
-            return "Unidbg 是 JVM jar，安卓运行时是 ART，无法直接执行；"
-                    + "请在桌面端 Python 后端使用，或改用 Frida 动态方案。";
+            return "unidbg 走 ART + unicorn2（libunicorn.so + libunicorn_java.so + "
+                    + "d8 转出的 dex），不需要 JVM；若不可用通常是缺 unicorn 库或 dex。";
         }
         if (n.startsWith("Fr_")) {
             return "Frida 需要 root 权限启动 frida-server；"
@@ -489,6 +490,94 @@ public final class ToolExecutor {
         return "if ! command -v blutter >/dev/null 2>&1; then "
                 + "EXE=" + exe + "; else EXE=blutter; fi; "
                 + "$EXE -i '" + soPath + "' -o '" + outDir.getAbsolutePath() + "'";
+    }
+
+    /**
+     * unidbg 模拟执行。
+     * 全部走反射——编译期不依赖 unidbg，缺库或 API 变动都不会让主程序崩。
+     */
+    private void unidbg(String n, JSONObject a, JSONObject out) throws Exception {
+        if (!UnidbgEngine.load(ctx)) {
+            out.put("engine", "unidbg (不可用)");
+            out.put("error", UnidbgEngine.lastError());
+            out.put("hint", "需要 libunicorn.so + libunicorn_java.so，"
+                    + "以及 assets/engine/unidbg/ 下的 dex（构建期由 d8 从 jar 转出）");
+            out.put("heuristic", false);
+            return;
+        }
+        if (n.endsWith("_Status") || n.endsWith("_Env") || n.endsWith("_Capabilities")) {
+            out.put("engine", "unidbg (ART + unicorn2)");
+            out.put("capabilities", UnidbgEngine.capabilities(ctx));
+            out.put("heuristic", false);
+            return;
+        }
+        String target = opt(a, "so", "path", "file", "lib");
+        if (target == null) {
+            out.put("error", "需要 so 路径");
+            out.put("capabilities", UnidbgEngine.capabilities(ctx));
+            return;
+        }
+        File so = new File(target);
+        if (!so.isFile()) { out.put("error", "文件不存在: " + target); return; }
+
+        boolean is64 = true;
+        try {
+            byte[] hdr = new byte[8];
+            java.io.FileInputStream fi = new java.io.FileInputStream(so);
+            fi.read(hdr); fi.close();
+            // ELF class: 1=32bit 2=64bit
+            if (hdr[4] == 1) is64 = false;
+        } catch (Exception ignored) {}
+
+        String apkPath = opt(a, "apk", "apk_path");
+        if (apkPath == null) apkPath = currentApk;
+        UnidbgEngine.Session sess = UnidbgEngine.open(
+                is64, opt(a, "process", "process_name"),
+                apkPath == null ? null : new File(apkPath));
+
+        if (sess.error != null) {
+            out.put("error", sess.error);
+            return;
+        }
+        try {
+            Object mod = UnidbgEngine.loadLibrary(sess, so, true);
+            if (mod == null) {
+                out.put("error", "加载 so 失败（可能缺少依赖库或架构不匹配）");
+                out.put("is64", is64);
+                return;
+            }
+            sess.module = mod;
+            out.put("session_id", sess.id);
+            out.put("is64", is64);
+            out.put("engine", "unidbg (ART + unicorn2)");
+            out.put("heuristic", false);
+
+            String sym = opt(a, "symbol", "sym", "name");
+            if (sym != null) {
+                out.put("call_result", UnidbgEngine.callSymbol(sess, mod, sym));
+            } else {
+                String addr = opt(a, "addr", "offset", "address");
+                if (addr != null) {
+                    try {
+                        long off = addr.startsWith("0x") || addr.startsWith("0X")
+                                ? Long.parseLong(addr.substring(2), 16)
+                                : Long.parseLong(addr);
+                        out.put("call_result", UnidbgEngine.callAddress(sess, mod, off));
+                    } catch (NumberFormatException e) {
+                        out.put("error", "地址格式不对: " + addr);
+                    }
+                } else {
+                    int limit = 100;
+                    try { limit = Integer.parseInt(String.valueOf(opt(a, "limit"))); }
+                    catch (Exception ignored) {}
+                    out.put("symbols", UnidbgEngine.listSymbols(mod, limit));
+                }
+            }
+        } finally {
+            // 模拟执行吃内存，用完立即释放，不常驻
+            UnidbgEngine.close(sess);
+            out.put("closed", true);
+        }
     }
 
     /** Frida 双通道：探测 / 拉起 / 生成脚本 / 生成 gadget 配置。 */
