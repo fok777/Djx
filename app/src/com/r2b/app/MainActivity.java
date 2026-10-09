@@ -107,8 +107,10 @@ public class MainActivity extends Activity {
         mainView.addView(fileBox, gap());
         LinearLayout stRow = new LinearLayout(this);
         TextView ready = tv("就绪", 13, green, true);
+        Button viewLog = pill("查看日志", 0xFFEEF1F5, blue);
         Button copyLog = pill("复制日志", 0xFFEEF1F5, blue);
         stRow.addView(ready, new LinearLayout.LayoutParams(0, -1, 1f));
+        stRow.addView(viewLog);
         stRow.addView(copyLog);
         mainView.addView(stRow, gap());
         // APK 分析结果：选完文件直接在这里出，不再只往服务日志里打
@@ -175,6 +177,11 @@ public class MainActivity extends Activity {
         pick.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT); i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("*/*"); startActivityForResult(i, 101); } });
         toolListBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { showToolsDialog(); } });
         copyLog.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { copyAll(); } });
+        viewLog.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+            String c = collectAllLog();
+            if (c.isEmpty()) { toast("暂无日志"); return; }
+            showLogViewDialog(c, "共 " + c.length() + " 字符");
+        } });
 
         ScrollView sv = new ScrollView(this);
         sv.setBackgroundColor(bg);
@@ -901,61 +908,171 @@ public class MainActivity extends Activity {
      * 复制同时**一定**写一份到导出目录，并在 Toast 里给出路径——
      * 剪贴板靠不住时用户至少有文件可拿。
      */
+    /**
+     * 复制全部日志。
+     *
+     * 之前"点了没反应"三个原因：
+     *      直接把已收集的内容清空 → 复制出空串
+     *   2. 只读 logView，而 logView 属于服务面板，主界面时可能是初始占位文本
+     *   3. 写导出目录在 Android 10+ 分区存储下会失败，且失败时没有任何兜底提示
+     *
+     * 现在的策略：
+     *   - 内容 = 服务日志 + 操作日志 + logView，去重合并，不再互相清空
+     *   - 复制同时写文件（MediaStore 优先，兼容 Android 10+）
+     *   - 无论成功与否都弹日志查看框，用户可长按手动选中复制——
+     *     这是最可靠的一条路，不依赖剪贴板 API 是否正常
+     */
     void copyAll() {
-        StringBuilder sb = new StringBuilder();
-        String svcLog = McpForegroundService.bufferedLog();
-        if (svcLog != null && svcLog.length() > 0) {
-            sb.append("===== 服务日志 =====\n").append(svcLog.trim()).append("\n");
-        }
-        if (fullLog.length() > 0) {
-            sb.append("\n===== 操作日志 =====\n").append(fullLog.toString().trim());
-        }
-        if (logView != null && logView.getText() != null) {
-            String v = logView.getText().toString();
-            if (v.length() > sb.length()) sb.setLength(0) ;
-            if (v.length() > 0 && sb.length() == 0) sb.append(v);
-        }
-        String s = sb.toString().trim();
+        final String s = collectAllLog();
         if (s.isEmpty()) {
             toast("日志为空，无可复制");
             return;
         }
-        // 无论如何先落盘，保证拿得到
         File saved = saveLogToFile(s);
-        boolean ok = false;
+        boolean clipOk = false;
         try {
             android.content.ClipboardManager cm =
                     (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
             if (cm != null) {
                 cm.setPrimaryClip(ClipData.newPlainText("R2B 日志", s));
-                ok = true;
+                clipOk = true;
             }
         } catch (Exception e) {
             appendLog("剪贴板写入失败: " + e.getMessage());
         }
-        if (ok) {
-            toast("已复制 " + s.length() + " 字符\n同时保存到: "
-                    + (saved == null ? "(失败)" : saved.getAbsolutePath()));
+        String msg;
+        if (clipOk && saved != null) {
+            msg = "已复制 " + s.length() + " 字符\n已保存到 " + saved.getAbsolutePath();
+        } else if (clipOk) {
+            msg = "已复制 " + s.length() + " 字符（文件保存失败）";
+        } else if (saved != null) {
+            msg = "剪贴板不可用，已保存到 " + saved.getAbsolutePath();
         } else {
-            toast("剪贴板不可用，已保存到:\n"
-                    + (saved == null ? "(保存失败)" : saved.getAbsolutePath()));
+            msg = "复制与保存都失败，请用下面的查看框手动复制";
         }
+        toast(msg);
+        // 无论如何都把内容摊开给用户——长按即可选中复制，绕开剪贴板问题
+        showLogViewDialog(s, msg);
+    }
+
+    /** 汇总所有日志来源，不再互相清空。 */
+    String collectAllLog() {
+        StringBuilder sb = new StringBuilder();
+        try {
+            String svcLog = McpForegroundService.bufferedLog();
+            if (svcLog != null && svcLog.trim().length() > 0) {
+                sb.append("===== 服务日志 =====\n").append(svLogTrim(svcLog)).append("\n");
+            }
+        } catch (Exception ignored) {}
+        if (fullLog.length() > 0) {
+            sb.append("\n===== 操作日志 =====\n").append(svLogTrim(fullLog.toString()));
+        }
+        if (logView != null && logView.getText() != null) {
+            String v = logView.getText().toString().trim();
+            // 只补 logView 里有、缓冲里没有的尾部内容，绝不清空已有内容
+            if (v.length() > 0 && !sb.toString().contains(v.substring(0, Math.min(40, v.length())))) {
+                sb.append("\n\n===== 面板日志 =====\n").append(v);
+            }
+        }
+        return sb.toString().trim();
+    }
+
+    private static String svLogTrim(String x) {
+        return x == null ? "" : x.trim();
+    }
+
+    /** 日志查看框：setTextIsSelectable，长按可全选复制。 */
+    void showLogViewDialog(String content, String hint) {
+        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(14), dp(10), dp(14), dp(6));
+
+        if (hint != null && !hint.isEmpty()) {
+            TextView h = tv(hint.replace("\n", " "), 12, 0xFF188038, true);
+            box.addView(h);
+        }
+        TextView tip = tv("长按文本可全选复制", 11, 0xFF8A929E, false);
+        box.addView(tip);
+
+        final TextView body = new TextView(this);
+        body.setText(content);
+        body.setTextSize(11);
+        body.setTypeface(Typeface.MONOSPACE);
+        body.setTextColor(0xFF202124);
+        body.setTextIsSelectable(true);
+        body.setPadding(dp(6), dp(6), dp(6), dp(6));
+        body.setBackground(roundRect(0xFFF5F7FA, dp(8)));
+
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        sv.addView(body);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, 0, 1f);
+        box.addView(sv, lp);
+
+        final String c = content;
+        Button again = pill("再试一次复制", 0xFF1A73E8, 0xFFFFFFFF);
+        again.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                try {
+                    android.content.ClipboardManager cm =
+                            (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (cm != null) {
+                        cm.setPrimaryClip(ClipData.newPlainText("R2B 日志", c));
+                        toast("已复制 " + c.length() + " 字符");
+                    }
+                } catch (Exception e) {
+                    toast("复制失败: " + e.getMessage());
+                }
+            }
+        });
+        box.addView(again, gap());
+
+        b.setView(box);
+        b.setNegativeButton("关闭", null);
+        b.show();
     }
 
     /** 日志落盘到导出目录（用户能直接用文件管理器取到）。 */
     private File saveLogToFile(String s) {
-        try {
-            File dir = exportDir();
-            if (!dir.exists() && !dir.mkdirs()) {
-                dir = getExternalFilesDir(null);
+        String name = "r2b_log_" + System.currentTimeMillis() + ".txt";
+        // Android 10+ 分区存储：公共 Download 不能直接 File 写，走 MediaStore
+        if (Build.VERSION.SDK_INT >= 29) {
+            try {
+                android.content.ContentValues cv = new android.content.ContentValues();
+                cv.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
+                cv.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "text/plain");
+                cv.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
+                        android.os.Environment.DIRECTORY_DOWNLOADS + "/Flutter分析结果");
+                android.net.Uri uri = getContentResolver().insert(
+                        android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
+                if (uri != null) {
+                    java.io.OutputStream os = getContentResolver().openOutputStream(uri);
+                    if (os != null) {
+                        os.write(s.getBytes("UTF-8"));
+                        os.close();
+                        appendLog("日志已保存到 Download/Flutter分析结果/" + name);
+                        return new File(android.os.Environment
+                                .getExternalStoragePublicDirectory(
+                                        android.os.Environment.DIRECTORY_DOWNLOADS),
+                                "Flutter分析结果/" + name);
+                    }
+                }
+            } catch (Exception e) {
+                appendLog("MediaStore 保存失败: " + e.getMessage());
             }
-            File f = new File(dir, "r2b_log_" + System.currentTimeMillis() + ".txt");
+        }
+        // 兜底：私有目录（一定能写）
+        try {
+            File dir = getExternalFilesDir(null);
+            if (dir == null) dir = getFilesDir();
+            File f = new File(dir, name);
             java.io.FileOutputStream os = new java.io.FileOutputStream(f);
             os.write(s.getBytes("UTF-8"));
             os.close();
-            if (fullLog.length() == 0) fullLog.append(s);
+            appendLog("日志已保存到 " + f.getAbsolutePath());
             return f;
         } catch (Exception e) {
+            appendLog("保存失败: " + e.getMessage());
             return null;
         }
     }
