@@ -65,6 +65,7 @@ jobs:
       # 诊断意图：日志下载域名在本环境被拦，故用 ::notice:: 把关键信息回传，
       # 可从 check-runs annotations API 读到。
       - name: Verify Release (debuggable must be false)
+        working-directory: app
         continue-on-error: true
         run: |
           AAPT=$ANDROID_HOME/build-tools/35.0.0/aapt2
