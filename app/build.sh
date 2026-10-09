@@ -41,10 +41,19 @@ else
   "$AAPT" link --manifest AndroidManifest.xml -I "$AJ" \
     --min-sdk-version 24 --target-sdk-version 35 -o build/base.apk --java build/java
 fi
+# com/r2aibridge/R2Core 必须一起编译：libr2aibridge.so 的 JNI 导出名是
+# Java_com_r2aibridge_R2Core_*，JNI 按「包名_类名_方法名」反查 Java 类，
+# 这个类不在 dex 里就会 ClassNotFoundException —— 桥 so 加载成功也没用。
+# 之前只编译 com/r2b/app，漏了这个包，radare2 一直不可用就是这么来的。
 echo "[2/5] javac17 (UTF-8)"; "$JC" -source 1.8 -target 1.8 -encoding UTF-8 \
   -bootclasspath "$AJ" -cp "$AJ" -d build/classes \
-  build/java/com/r2b/app/*.java src/com/r2b/app/*.java
-echo "[3/5] d8 dex"; "$D8" --release --lib "$AJ" --min-api 24 --output build build/classes/com/r2b/app/*.class
+  build/java/com/r2b/app/*.java \
+  src/com/r2b/app/*.java \
+  src/com/r2aibridge/*.java
+# 同样要把 com/r2aibridge 的 class 打进 dex，否则运行时依旧找不到 R2Core
+echo "[3/5] d8 dex"; "$D8" --release --lib "$AJ" --min-api 24 --output build \
+  build/classes/com/r2b/app/*.class \
+  build/classes/com/r2aibridge/*.class
 # ---- 3.5/5 unidbg jar → dex ----
 # unidbg 是 JVM jar，安卓跑的是 ART，必须用 d8 转成 dex 才能加载。
 # 转好后打进 assets/engine/unidbg/*.dex，运行时用 DexClassLoader 载入。
