@@ -109,6 +109,9 @@ jobs:
       - name: Build Release APK (not debuggable)
         working-directory: app
         run: |
+          # pipefail：不加的话 `bash build.sh | tee` 的退出码来自 tee，
+          # build.sh 失败也会被判成成功
+          set -o pipefail
           export AJ=$ANDROID_HOME/platforms/android-35/android.jar
           export AAPT=$ANDROID_HOME/build-tools/35.0.0/aapt2
           export D8=$ANDROID_HOME/build-tools/35.0.0/d8
@@ -117,6 +120,14 @@ jobs:
 
       # 诊断意图：日志下载域名在本环境被拦，故用 ::notice:: 把关键信息回传，
       # 可从 check-runs annotations API 读到。
+      - name: Dump build log (diagnostic)
+        if: always()
+        working-directory: app
+        continue-on-error: true
+        run: |
+          echo "::notice::buildlog-tail=$(tail -30 build.log 2>/dev/null | tr '\n' '|')"
+          echo "::notice::ls-app=$(ls -la | tr '\n' '|')"
+
       - name: Verify Release (debuggable must be false)
         working-directory: app
         run: |
