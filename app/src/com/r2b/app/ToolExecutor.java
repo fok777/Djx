@@ -28,9 +28,16 @@ public final class ToolExecutor {
 
     private final Context ctx;
     private volatile String currentApk;   // 当前选中的 APK
+    private transient TermuxExecutor termux;
 
     public ToolExecutor(Context ctx) {
         this.ctx = ctx.getApplicationContext();
+    }
+
+    /** Termux 通道（懒加载，装了才用）。 */
+    public synchronized TermuxExecutor termux() {
+        if (termux == null) termux = new TermuxExecutor(ctx);
+        return termux;
     }
 
     public void setCurrentApk(String p) { currentApk = p; }
@@ -322,7 +329,39 @@ public final class ToolExecutor {
         out.put("is_pie", elf.isPie);
         out.put("stack", "Flutter (Dart AOT)");
 
-        // 优先尝试真实 blutter（exec PIE 可执行文件）
+        // 优先 Termux：真实 blutter 产出完整的 asm/pp.txt/objs.txt
+        TermuxExecutor tx = termux();
+        if (tx.usable()) {
+            File outDir = new File(workDir(), "blutter_out");
+            if (!outDir.exists()) outDir.mkdirs();
+            String bcmd = blutterTermuxCmd(a.optString("dart_version", null),
+                    so.getAbsolutePath(), outDir);
+            TermuxExecutor.Result r = tx.run(bcmd, 300000);
+            if (r.ok && r.exitCode == 0) {
+                JSONObject parsed = BlutterOutput.parse(outDir);
+                out.put("engine", "blutter (Termux, 真实)");
+                out.put("heuristic", false);
+                out.put("exit_code", r.exitCode);
+                out.put("output_dir", outDir.getAbsolutePath());
+                if (parsed != null) {
+                    java.util.Iterator<String> it = parsed.keys();
+                    while (it.hasNext()) {
+                        String k = it.next();
+                        out.put(k, parsed.opt(k));
+                    }
+                }
+                if (r.stdout != null && r.stdout.length() > 0) {
+                    out.put("stdout", r.stdout.substring(0, Math.min(4000, r.stdout.length())));
+                }
+                return;
+            }
+            out.put("termux_blutter_failed", r.error != null ? r.error : ("exit=" + r.exitCode));
+            if (r.stdout != null && r.stdout.length() > 0) {
+                out.put("partial_output", r.stdout.substring(0, Math.min(2000, r.stdout.length())));
+            }
+        }
+
+        // 其次：本地 exec（libblutter_*.so 是 PIE 可执行文件）
         File real = blutterBinary(a.optString("dart_version", null));
         boolean usedReal = false;
         if (real != null) {
@@ -436,6 +475,32 @@ public final class ToolExecutor {
         return null;
     }
 
+    /** 拼 Termux 里的 blutter 命令：优先已装的 blutter，其次用释放出来的 PIE。 */
+    private String blutterTermuxCmd(String dartVer, String soPath, File outDir) {
+        String exe = "blutter";
+        File local = blutterBinary(dartVer);
+        if (local != null) {
+            exe = "'" + local.getAbsolutePath() + "'";
+        }
+        return "if ! command -v blutter >/dev/null 2>&1; then "
+                + "EXE=" + exe + "; else EXE=blutter; fi; "
+                + "$EXE -i '" + soPath + "' -o '" + outDir.getAbsolutePath() + "'";
+    }
+
+    private static String defaultR2Cmd(String tool) {
+        switch (tool) {
+            case "R2_Analyze": return "aaa";
+            case "R2_Functions": return "afl";
+            case "R2_Strings": return "iz";
+            case "R2_Info": return "iI";
+            case "R2_Sections": return "iS";
+            case "R2_Symbols": return "is";
+            case "R2_Imports": return "ii";
+            case "R2_Disassemble": return "pdf";
+            default: return "?V";
+        }
+    }
+
     /** 找可用的 blutter 可执行文件（按 Dart 版本匹配，名义是 .so 实为 PIE）。 */
     private File blutterBinary(String dartVer) {
         File dir = new File(engineRoot(ctx), "blutter");
@@ -525,7 +590,30 @@ public final class ToolExecutor {
     // ---------- radare2 ----------
 
     private void r2(String n, JSONObject a, JSONObject out) throws Exception {
-        // JNI 桥在 com.r2aibridge.R2Core，native 方法签名不可考，
+        // 优先 Termux：那里能跑真实 radare2，能力远超内置解析
+        String cmd = opt(a, "command", "cmd");
+        String target = opt(a, "so", "path", "file", "apk_path");
+        if (target == null) target = currentApk;
+        TermuxExecutor tx = termux();
+        if (tx.usable() && target != null) {
+            String realCmd = cmd != null ? cmd : defaultR2Cmd(n);
+            String full = "r2 -q -c '" + realCmd.replace("'", "'\''") + "' '" + target + "'";
+            TermuxExecutor.Result r = tx.run(full, 60000);
+            if (r.ok) {
+                out.put("engine", "radare2 (Termux)");
+                out.put("heuristic", false);
+                out.put("exit_code", r.exitCode);
+                out.put("command", full);
+                out.put("output", r.stdout);
+                return;
+            }
+            out.put("termux_error", r.error);
+            if (r.stdout != null && r.stdout.length() > 0) {
+                out.put("partial_output", r.stdout);
+            }
+        }
+
+        // 降级：JNI 桥（com.r2aibridge.R2Core），签名不可考，
         // 任何一步失败都降级，绝不让它把进程带崩。
         try {
             Class<?> c = Class.forName("com.r2aibridge.R2Core");
@@ -577,6 +665,13 @@ public final class ToolExecutor {
         }
         out.put("engines", eng);
         out.put("engine_root", root.getAbsolutePath());
+        TermuxExecutor tx = termux();
+        JSONObject t = new JSONObject();
+        t.put("installed", tx.installed());
+        t.put("has_permission", tx.hasPermission());
+        t.put("usable", tx.usable());
+        if (tx.usable()) t.put("probe", tx.probe());
+        out.put("termux", t);
         out.put("unpacked", new File(root, ".unpacked").exists());
         out.put("current_apk", currentApk);
         out.put("abi", android.os.Build.SUPPORTED_ABIS.length > 0

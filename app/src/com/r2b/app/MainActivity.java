@@ -289,6 +289,8 @@ public class MainActivity extends Activity {
             TextView tb = iconSquare(color, e.optString("icon", "\u2699"), dp(46));
             tb.setTag(e.optString("name"));
             tb.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
+                // 点图标直接弹出该分类的工具列表（可点、可真跑）
+                showCategoryDialog(engines.optJSONObject(idx));
                 cur[0] = (cur[0] == idx) ? -1 : idx;
                 for (int k = 0; k < tabViews.size(); k++) {
                     tabViews.get(k).setAlpha(cur[0] == -1 ? 1.0f : (cur[0] == k ? 1.0f : 0.35f));
@@ -375,6 +377,58 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, -1, 1f);
         r.addView(ic); r.addView(t, tlp);
         return r;
+    }
+
+    /**
+     * 点底部分类图标 -> 弹出该分类的工具列表，每行可点击真实执行。
+     * 这是图标条真正该干的事：之前只做过滤，等于没有。
+     */
+    void showCategoryDialog(final JSONObject e) {
+        if (e == null) return;
+        String name = e.optString("name", "分类");
+        int color = Color.parseColor(e.optString("color", "#00897B"));
+        JSONArray tools = e.optJSONArray("tools");
+        int n = tools == null ? 0 : tools.length();
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(12), dp(10), dp(12), dp(10));
+
+        if (n == 0) {
+            TextView empty = tv("该分类没有工具数据", 13, 0xFF8A929E, false);
+            box.addView(empty);
+        } else {
+            // 顶部：分类说明
+            TextView head = tv(name + " · " + n + " 个工具", 15, 0xFF202124, true);
+            box.addView(head, gapS());
+            String sub = e.optString("subtitle", "");
+            if (sub.length() > 0) {
+                box.addView(tv(sub, 12, 0xFF5F6368, false), gapS());
+            }
+
+            ScrollView sv = new ScrollView(this);
+            LinearLayout list = new LinearLayout(this);
+            list.setOrientation(LinearLayout.VERTICAL);
+            for (int i = 0; i < n; i++) {
+                JSONObject t = tools.optJSONObject(i);
+                if (t == null) continue;
+                final String tn = t.optString("name", "");
+                final String ds = t.optString("desc", "");
+                View row = toolRow(e.optString("icon", "\u2699"), color, name, tn, ds);
+                row.setOnClickListener(new View.OnClickListener() {
+                    public void onClick(View v) { runTool(tn); }
+                });
+                list.addView(row, gapS());
+            }
+            sv.addView(list);
+            box.addView(sv);
+        }
+
+        new AlertDialog.Builder(this)
+            .setTitle(name)
+            .setView(box)
+            .setPositiveButton("关闭", null)
+            .show();
     }
 
     /** 点击工具：本机真实执行并把结果展示出来。 */

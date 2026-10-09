@@ -17,6 +17,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- 引导用户把本应用加入电池优化白名单 -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+    <!-- Termux 执行通道：装了 Termux 就能跑真实 radare2 / blutter / frida -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND"/>
 
     <application android:label="R2B 逆向" android:allowBackup="true"
         android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round"
