@@ -731,10 +731,14 @@ public class MainActivity extends Activity {
 
     void appendLog(final String line) {
         if (line == null) return;
-        fullLog.append("\n").append(line);
+        // 带时间戳，和黑猫日志格式一致，便于对照时间线排查
+        String ts = new java.text.SimpleDateFormat("[HH:mm:ss]",
+                java.util.Locale.US).format(new java.util.Date());
+        fullLog.append("\n").append(ts).append(" ").append(line);
         if (logView == null) return;
+        final String shown = ts + " " + line;
         ui.post(new Runnable() { public void run() {
-            logView.append("\n" + line);
+            logView.append("\n" + shown);
         } });
     }
 
@@ -1390,109 +1394,159 @@ public class MainActivity extends Activity {
      *   阶段 4  Flutter 有 libapp.so → blutter 符号
      *   阶段 5  汇总
      */
+    /**
+     * 选完 APK 后的自动分析流水线。
+     *
+     * 顺序（黑猫原版也是这个思路，只是它不告诉你每一步在干什么）：
+     *   ① 壳检测 —— 有壳就先提示脱壳，不做无意义的解析
+     *   ② 解包 —— DEX + 全部 native so
+     *   ③ 按技术栈分流：
+     *        Flutter  → blutter 解析 libapp.so
+     *        Unity    → IL2CPP 符号还原
+     *        原生      → DEX 字符串 / 类名 / Manifest
+     *   ④ 每个 so 反汇编
+     *   ⑤ 汇总
+     */
     void autoAnalyzeAfterParse(final NativeAnalyzer.ApkInfo info, final File apk) {
         if (info == null) return;
         final long t0 = System.currentTimeMillis();
 
         new Thread(new Runnable() { public void run() {
-            final java.util.List<String> soPaths = new java.util.ArrayList<String>();
-            final StringBuilder summary = new StringBuilder();
+            final StringBuilder sum = new StringBuilder();
 
-            // ===== 阶段 1：解包 =====
-            appendCardSection("① 解包中…", "APK → " + exportDir().getAbsolutePath());
-            // DEX
+            // ===== ① 壳检测 =====
+            final NativeAnalyzer.PackerInfo pk = NativeAnalyzer.detectPacker(info);
+            if (pk.packed) {
+                appendCardSection("① 壳检测 ⚠ " + pk.name,
+                        "证据: " + pk.evidence + "\n\n"
+                        + "脱壳建议: " + pk.unpackHint + "\n\n"
+                        + "加壳 APK 的 dex/so 是密文，下面的静态分析结果不可信，"
+                        + "需先 dump 出解密后的 dex 再分析。");
+                appendLog("检测到 " + pk.name + "：" + pk.evidence);
+            } else {
+                appendCardSection("① 壳检测 ✓ 无壳", "未发现已知加固特征，可直接静态分析。");
+            }
+
+            // ===== ② 解包 =====
+            appendCardSection("② 解包中…", "→ " + exportDir().getAbsolutePath());
             int dexN = 0;
             if (info.dexes != null) {
                 for (String dx : info.dexes) {
-                    File o = NativeAnalyzer.extractEntry(apk, dx, exportDir());
-                    if (o != null) dexN++;
+                    if (NativeAnalyzer.extractEntry(apk, dx, exportDir()) != null) dexN++;
                 }
             }
-            // 全部 so（不只主 so——黑猫也是全扒）
-            int soN = 0;
+            final java.util.List<String> soPaths = new java.util.ArrayList<String>();
             if (info.libs != null) {
                 for (String lib : info.libs) {
                     File o = NativeAnalyzer.extractEntry(apk, lib, exportDir());
-                    if (o != null) {
-                        soPaths.add(o.getAbsolutePath());
-                        soN++;
-                    }
+                    if (o != null) soPaths.add(o.getAbsolutePath());
                 }
             }
-            appendLog("解包完成: DEX " + dexN + " 个, SO " + soN + " 个");
-            appendCardSection("① 解包完成",
-                    "DEX " + dexN + " 个 · SO " + soN + " 个\n目录: "
+            appendCardSection("② 解包完成",
+                    "DEX " + dexN + " 个 · SO " + soPaths.size() + " 个\n"
                             + exportDir().getAbsolutePath());
+            appendLog("解包完成: DEX " + dexN + ", SO " + soPaths.size());
 
-            // ===== 阶段 2：DEX =====
-            try {
-                if (toolExec == null) toolExec = new ToolExecutor(MainActivity.this);
-                org.json.JSONObject a = new org.json.JSONObject();
-                a.put("apk_path", apk.getAbsolutePath());
-                a.put("path", apk.getAbsolutePath());
-                String r = toolExec.execute("Dex_Strings", a);
-                appendCardSection("② DEX 字符串", r);
-            } catch (Throwable e) {
-                appendCardSection("② DEX 字符串", "失败: " + e.getMessage());
-            }
+            if (toolExec == null) toolExec = new ToolExecutor(MainActivity.this);
 
-            // ===== 阶段 3：逐个 so =====
-            int done = 0;
-            for (final String so : soPaths) {
-                done++;
-                final int idx = done;
-                try {
-                    if (toolExec == null) toolExec = new ToolExecutor(MainActivity.this);
-                    org.json.JSONObject a = new org.json.JSONObject();
-                    a.put("so", so);
-                    a.put("path", so);
-                    a.put("file", so);
-                    a.put("offset", "0");
-                    a.put("length", "2048");
-                    a.put("arch", info.archs != null && info.archs.contains("arm64-v8a")
-                            ? "arm64" : "arm");
-                    String r = toolExec.execute("Capstone_Disasm", a);
-                    String nm = new File(so).getName();
-                    appendCardSection("③ SO [" + idx + "/" + soPaths.size() + "] " + nm, r);
-                } catch (Throwable e) {
-                    appendCardSection("③ SO [" + idx + "]", "失败: " + e.getMessage());
-                }
-            }
-
-            // ===== 阶段 4：Flutter =====
+            // ===== ③ 按技术栈分流 =====
             if (info.hasFlutter) {
-                try {
-                    File appSo = null;
-                    for (String sp : soPaths) {
-                        if (sp.endsWith("libapp.so")) { appSo = new File(sp); break; }
-                    }
-                    if (appSo != null && toolExec != null) {
+                // Flutter：blutter
+                File appSo = null;
+                for (String sp : soPaths) {
+                    if (sp.endsWith("libapp.so")) { appSo = new File(sp); break; }
+                }
+                if (appSo == null) {
+                    appendCardSection("③ Flutter 分析",
+                            "检测到 Flutter（有 libflutter.so）但未找到 libapp.so。\n"
+                            + "可能原因：\n"
+                            + "  · so 被拆包 / 放在别的位置\n"
+                            + "  · 是 debug 版或 split ABI 包\n"
+                            + "  · 被加壳\n\n"
+                            + "已列出的 so:\n" + joinLines(soPaths));
+                } else {
+                    try {
                         org.json.JSONObject a = new org.json.JSONObject();
                         a.put("so", appSo.getAbsolutePath());
                         a.put("path", appSo.getAbsolutePath());
                         a.put("apk_path", apk.getAbsolutePath());
-                        String r = toolExec.execute("Blutter_Analyze", a);
-                        appendCardSection("④ Flutter 符号", r);
+                        appendCardSection("③ Flutter 符号 (blutter)",
+                                toolExec.execute("Blutter_Analyze", a));
+                    } catch (Throwable e) {
+                        appendCardSection("③ Flutter 符号", "失败: " + e.getMessage());
                     }
+                }
+            } else if (info.hasIl2Cpp) {
+                // Unity IL2CPP
+                File cpp = null;
+                for (String sp : soPaths) {
+                    if (sp.endsWith("libil2cpp.so")) { cpp = new File(sp); break; }
+                }
+                if (cpp != null) {
+                    try {
+                        org.json.JSONObject a = new org.json.JSONObject();
+                        a.put("so", cpp.getAbsolutePath());
+                        a.put("path", cpp.getAbsolutePath());
+                        appendCardSection("③ IL2CPP 符号",
+                                toolExec.execute("Il2Cpp_Analyze", a));
+                    } catch (Throwable e) {
+                        appendCardSection("③ IL2CPP 符号", "失败: " + e.getMessage());
+                    }
+                }
+            } else {
+                // 原生：DEX 层
+                try {
+                    org.json.JSONObject a = new org.json.JSONObject();
+                    a.put("apk_path", apk.getAbsolutePath());
+                    a.put("path", apk.getAbsolutePath());
+                    appendCardSection("③ DEX 字符串", toolExec.execute("Dex_Strings", a));
                 } catch (Throwable e) {
-                    appendCardSection("④ Flutter 符号", "失败: " + e.getMessage());
+                    appendCardSection("③ DEX 字符串", "失败: " + e.getMessage());
                 }
             }
 
-            // ===== 阶段 5：汇总 =====
+            // ===== ④ 每个 so 反汇编 =====
+            for (int i = 0; i < soPaths.size(); i++) {
+                final String so = soPaths.get(i);
+                final int idx = i + 1;
+                try {
+                    org.json.JSONObject a = new org.json.JSONObject();
+                    a.put("so", so); a.put("path", so); a.put("file", so);
+                    a.put("offset", "0"); a.put("length", "2048");
+                    a.put("arch", info.archs != null && info.archs.contains("arm64-v8a")
+                            ? "arm64" : "arm");
+                    appendCardSection("④ SO [" + idx + "/" + soPaths.size() + "] "
+                            + new File(so).getName(),
+                            toolExec.execute("Capstone_Disasm", a));
+                } catch (Throwable e) {
+                    appendCardSection("④ SO [" + idx + "]", "失败: " + e.getMessage());
+                }
+            }
+
+            // ===== ⑤ 汇总 =====
             long ms = System.currentTimeMillis() - t0;
-            summary.append("耗时 ").append(ms).append(" ms\n");
-            summary.append("技术栈 ").append(info.hasFlutter ? "Flutter"
+            sum.append("耗时 ").append(ms).append(" ms\n");
+            sum.append("壳     ").append(pk.name).append('\n');
+            sum.append("技术栈 ").append(info.hasFlutter ? "Flutter"
                     : (info.hasIl2Cpp ? "Unity/IL2CPP"
-                    : (info.hasReactNative ? "React Native" : "原生"))).append('\n');
-            summary.append("DEX ").append(info.dexes == null ? 0 : info.dexes.size())
-                   .append(" · SO ").append(info.libs == null ? 0 : info.libs.size())
-                   .append(" · 条目 ").append(info.entries == null ? 0 : info.entries.size())
-                   .append('\n');
-            summary.append("导出目录 ").append(exportDir().getAbsolutePath());
-            appendCardSection("⑤ 汇总", summary.toString());
+                    : (info.hasReactNative ? "React Native" : "原生 Java/Kotlin"))).append('\n');
+            sum.append("DEX ").append(info.dexes == null ? 0 : info.dexes.size())
+               .append(" · SO ").append(info.libs == null ? 0 : info.libs.size())
+               .append(" · 条目 ").append(info.entries == null ? 0 : info.entries.size())
+               .append('\n');
+            sum.append("导出 ").append(exportDir().getAbsolutePath());
+            appendCardSection("⑤ 汇总", sum.toString());
             appendLog("自动分析完成，耗时 " + ms + " ms");
         } }).start();
+    }
+
+    private static String joinLines(java.util.List<String> l) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < l.size() && i < 30; i++) {
+            sb.append("  · ").append(new File(l.get(i)).getName()).append('\n');
+        }
+        if (l.size() > 30) sb.append("  … 还有 ").append(l.size() - 30).append(" 个");
+        return sb.toString();
     }
 
     /** 选一个值得看的主 so：优先 Flutter/Unity 的，其次体积大的。 */

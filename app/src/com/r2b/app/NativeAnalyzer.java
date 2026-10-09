@@ -344,10 +344,154 @@ public final class NativeAnalyzer {
         public List<String> dexes = new ArrayList<String>();
         public List<String> libs = new ArrayList<String>();
         public List<String> archs = new ArrayList<String>();
+        public List<String> classNames = new ArrayList<String>();
         public boolean hasFlutter = false;
         public boolean hasIl2Cpp = false;
         public boolean hasReactNative = false;
         public String error;
+    }
+
+    /**
+     * 壳检测。
+     *
+     * 自动分析第一步必须做这个——加了壳的 APK，dex 与 so 都是密文，
+     * 直接分析只会得到乱码。判定出来后走脱壳流程，而不是硬解析。
+     */
+    public enum Packer {
+        NONE, QI_HOO, BANG_BANG, TENCENT, ALI, BAI_DU, AI_JIA_MI, TONG_DUN, UNKNOWN
+    }
+
+    public static class PackerInfo {
+        public Packer packer = Packer.NONE;
+        public String name = "无壳";
+        public String evidence = "";
+        public boolean packed = false;
+        public String unpackHint = "";
+    }
+
+    /** 已知壳特征文件/库名 → 壳标识。 */
+    private static final String[][] PACKER_FILES = {
+        {"libx3g.so",          "QI_HOO"},
+        {"libjiagu.so",        "QI_HOO"},
+        {"libprotectClass.so", "QI_HOO"},
+        {"libDexHelper.so",    "BANG_BANG"},
+        {"libsecexe.so",       "BANG_BANG"},
+        {"libsecmain.so",      "BANG_BANG"},
+        {"libSecShell.so",     "BANG_BANG"},
+        {"libshell.so",        "TENCENT"},
+        {"libshella.so",       "TENCENT"},
+        {"libshellx.so",       "TENCENT"},
+        {"libmobisec.so",      "ALI"},
+        {"libsgmain.so",       "ALI"},
+        {"libbaiduprotect.so", "BAI_DU"},
+        {"libddog.so",         "AI_JIA_MI"},
+        {"libexec.so",         "AI_JIA_MI"},
+        {"libexecmain.so",     "AI_JIA_MI"},
+        {"libtongdun.so",      "TONG_DUN"},
+    };
+
+    public static PackerInfo detectPacker(ApkInfo info) {
+        PackerInfo r = new PackerInfo();
+        if (info == null) return r;
+
+        // 1) 特征 so
+        if (info.libs != null) {
+            for (String l : info.libs) {
+                String n = l.substring(l.lastIndexOf('/') + 1);
+                for (String[] pf : PACKER_FILES) {
+                    if (n.equals(pf[0])) {
+                        r.packer = Packer.valueOf(pf[1]);
+                        r.evidence = "特征库: " + l;
+                        r.packed = true;
+                        break;
+                    }
+                }
+                if (r.packed) break;
+            }
+        }
+
+        // 2) 特征条目（assets 下也放）
+        if (!r.packed && info.entries != null) {
+            for (String e : info.entries) {
+                String n = e.substring(e.lastIndexOf('/') + 1);
+                for (String[] pf : PACKER_FILES) {
+                    if (n.equals(pf[0])) {
+                        r.packer = Packer.valueOf(pf[1]);
+                        r.evidence = "特征文件: " + e;
+                        r.packed = true;
+                        break;
+                    }
+                }
+                if (r.packed) break;
+            }
+        }
+
+        // 3) 壳 Application 包名
+        if (!r.packed && info.classNames != null) {
+            String[][] apps = {
+                {"com.secneo.apkwrapper",  "BANG_BANG"},
+                {"com.qihoo.util",         "QI_HOO"},
+                {"com.stub.StubApp",       "QI_HOO"},
+                {"com.tencent.StubShell",  "TENCENT"},
+                {"com.ali.mobisecenhance", "ALI"},
+                {"com.baidu.protect",      "BAI_DU"},
+            };
+            for (String cn : info.classNames) {
+                for (String[] pa : apps) {
+                    if (cn.startsWith(pa[0])) {
+                        r.packer = Packer.valueOf(pa[1]);
+                        r.evidence = "壳 Application: " + cn;
+                        r.packed = true;
+                        break;
+                    }
+                }
+                if (r.packed) break;
+            }
+        }
+
+        // 4) 兜底：只有 1 个 dex 却塞了很多 so —— 正常应用不会这样
+        if (!r.packed && info.dexes != null && info.dexes.size() == 1
+                && info.libs != null && info.libs.size() >= 3) {
+            r.packer = Packer.UNKNOWN;
+            r.evidence = "只有 1 个 DEX 却有 " + info.libs.size() + " 个 so，高度可疑";
+            r.packed = true;
+        }
+
+        if (r.packed) r.name = packerName(r.packer);
+        r.unpackHint = unpackHint(r.packer);
+        return r;
+    }
+
+    private static String packerName(Packer p) {
+        switch (p) {
+            case QI_HOO:    return "360 加固";
+            case BANG_BANG: return "梆梆加固";
+            case TENCENT:   return "腾讯乐固";
+            case ALI:       return "阿里聚安全";
+            case BAI_DU:    return "百度加固";
+            case AI_JIA_MI: return "爱加密";
+            case TONG_DUN:  return "通付盾";
+            default:        return "未知壳";
+        }
+    }
+
+    private static String unpackHint(Packer p) {
+        switch (p) {
+            case QI_HOO:
+                return "360 壳：dex 运行时解密到内存。用 frida hook libart 的 "
+                        + "OpenMemory 把真实 dex dump 出来";
+            case BANG_BANG:
+                return "梆梆壳：hook memcpy / mmap 拦截解密后的 dex，或 "
+                        + "hook DexClassLoader 加载点";
+            case TENCENT:
+                return "乐固壳：libshell 解密，hook dvmDexFileOpenPartial / "
+                        + "OpenMemory 抓 dex";
+            case ALI:
+                return "阿里壳：libmobisec 解密，走内存 dump 路线";
+            default:
+                return "通用脱壳：frida hook libart OpenMemory / DexFile 构造，"
+                        + "把解密后的 dex 从内存 dump 出来";
+        }
     }
 
     /** 打开 APK：列条目、识别技术栈（Flutter / Unity / RN）。 */
