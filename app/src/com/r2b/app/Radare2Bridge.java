@@ -1,0 +1,230 @@
+package com.r2b.app;
+
+import android.content.Context;
+import android.util.Log;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+/**
+ * radare2 引擎加载器（JNI 桥方式，不需要 Termux）。
+ *
+ * 参照「Flutter 解析工具 8.0」的做法逆向得出：
+ *   它把 23 个 libr_*.so + libcapstone.so + libdemumble.so 一起打进
+ *   lib/arm64-v8a/，再通过 libr2aibridge.so 这个 JNI 桥调用。
+ *   桥的导出符号是：
+ *     Java_com_r2aibridge_R2Core_initR2Core
+ *     Java_com_r2aibridge_R2Core_executeCommand
+ *     Java_com_r2aibridge_R2Core_openFile
+ *     Java_com_r2aibridge_R2Core_closeR2Core
+ *     Java_com_r2aibridge_R2Core_testR2
+ *   所以 radare2 不是靠 exec 命令行，而是 dlopen 进进程直接调 r_core_*。
+ *
+ * 关键点：这些 so 之间互相依赖（libr_core 依赖 libr_anal/asm/bin/io/util…），
+ * 而安卓不会自动到应用私有目录里找依赖库，必须按拓扑序手动 System.load，
+ * 且顺序错了会 UnsatisfiedLinkError。顺序由依赖分析得出，见 LOAD_ORDER。
+ */
+public final class Radare2Bridge {
+
+    private static final String TAG = "R2B_R2";
+
+    /** 按依赖拓扑排序的加载顺序（libr2aibridge.so 必须在 libr_core.so 之后）。 */
+    private static final String[] LOAD_ORDER = {
+        "libc++_shared.so",
+        "libcapstone.so",
+        "libkeystone.so",
+        "libr_util.so",
+        "libunicorn.so",
+        "libdemumble.so",
+        "libr_bp.so",
+        "libr_config.so",
+        "libr_cons.so",
+        "libr_flag.so",
+        "libr_magic.so",
+        "libr_muta.so",
+        "libr_reg.so",
+        "libr_socket.so",
+        "libr_syscall.so",
+        "libunicorn_java.so",
+        "libr_esil.so",
+        "libr_fs.so",
+        "libr_io.so",
+        "libr_search.so",
+        "libr_arch.so",
+        "libr_bin.so",
+        "libr_anal.so",
+        "libr_asm.so",
+        "libr_egg.so",
+        "libr_lang.so",
+        "libr_debug.so",
+        "libr_core.so",
+        "libr2aibridge.so",
+        "libr_main.so",
+    };
+
+    public static class LoadReport {
+        public boolean ok;
+        public List<String> loaded = new ArrayList<String>();
+        public List<String> missing = new ArrayList<String>();
+        public String error;
+    }
+
+    private static volatile boolean loaded = false;
+    private static volatile String loadError = null;
+    private static final Object LOCK = new Object();
+
+    /** 引擎目录：files/engine/radare2/ */
+    public static File dir(Context c) {
+        return new File(EngineUnpacker.engineRoot(c), "radare2");
+    }
+
+    /** 加载全部 so（幂等）。 */
+    public static synchronized LoadReport load(Context c) {
+        LoadReport rep = new LoadReport();
+        if (loaded) {
+            rep.ok = true;
+            return rep;
+        }
+        synchronized (LOCK) {
+            if (loaded) {
+                rep.ok = true;
+                return rep;
+            }
+            File d = dir(c);
+            if (!d.isDirectory()) {
+                rep.error = "引擎目录不存在: " + d.getAbsolutePath();
+                loadError = rep.error;
+                return rep;
+            }
+            // 第一遍：检查缺失（缺关键库就直接放弃，避免半加载状态）
+            for (String n : LOAD_ORDER) {
+                File f = new File(d, n);
+                if (!f.exists()) rep.missing.add(n);
+            }
+            // libr_core 与桥必须有，否则整个 radare2 不可用
+            if (!new File(d, "libr_core.so").exists()
+                    || !new File(d, "libr2aibridge.so").exists()) {
+                rep.error = "缺少关键库 libr_core.so / libr2aibridge.so；缺失清单: "
+                        + rep.missing;
+                loadError = rep.error;
+                Log.w(TAG, rep.error);
+                return rep;
+            }
+
+            // 第二遍：按序加载。缺失的跳过（非关键库缺了可能仍能跑基础命令）
+            for (String n : LOAD_ORDER) {
+                File f = new File(d, n);
+                if (!f.exists()) continue;
+                try {
+                    System.load(f.getAbsolutePath());
+                    rep.loaded.add(n);
+                } catch (Throwable t) {
+                    // 单个库失败不中断：记下来继续，最后看桥能不能用
+                    Log.w(TAG, "加载失败 " + n + ": " + t.getMessage());
+                    if (rep.error == null) {
+                        rep.error = n + ": " + t.getMessage();
+                    }
+                }
+            }
+
+            // 验证：桥的 native 方法能否解析
+            try {
+                Class<?> k = Class.forName("com.r2aibridge.R2Core");
+                k.getMethod("initR2Core");
+                rep.ok = true;
+                loaded = true;
+                loadError = null;
+                Log.i(TAG, "radare2 加载完成，已加载 " + rep.loaded.size() + " 个库");
+            } catch (Throwable t) {
+                rep.error = "JNI 桥不可用: " + t.getClass().getSimpleName()
+                        + ": " + t.getMessage();
+                loadError = rep.error;
+                Log.e(TAG, rep.error);
+            }
+            return rep;
+        }
+    }
+
+    public static boolean isLoaded() { return loaded; }
+
+    /**
+     * 执行一条 r2 命令。
+     * 返回 String；任何失败都变成带错误说明的字符串，不抛异常。
+     */
+    public static String cmd(String command) {
+        if (!loaded) return "radare2 未加载: " + loadError;
+        try {
+            Class<?> k = Class.forName("com.r2aibridge.R2Core");
+            Object inst = k.newInstance();
+            java.lang.reflect.Method init = k.getMethod("initR2Core");
+            Object r = init.invoke(inst);
+            java.lang.reflect.Method exec = k.getMethod("executeCommand", String.class);
+            Object out = exec.invoke(inst, command);
+            return String.valueOf(out);
+        } catch (ClassNotFoundException e) {
+            return "R2Core 类不存在（桥未打进包）";
+        } catch (NoSuchMethodException e) {
+            // native 方法签名不匹配最有可能是这里。把可用方法一并列出，便于修正。
+            return "native 方法签名不匹配: " + e.getMessage() + "；可用方法: "
+                    + Arrays.toString(availableMethods());
+        } catch (Throwable t) {
+            return "r2 执行失败: " + t.getClass().getSimpleName() + ": " + t.getMessage();
+        }
+    }
+
+    /** 打开目标文件（so / 二进制）。 */
+    public static String open(String path) {
+        if (!loaded) return "radare2 未加载: " + loadError;
+        try {
+            Class<?> k = Class.forName("com.r2aibridge.R2Core");
+            Object inst = k.newInstance();
+            k.getMethod("initR2Core").invoke(inst);
+            java.lang.reflect.Method m = k.getMethod("openFile", String.class);
+            return String.valueOf(m.invoke(inst, path));
+        } catch (Throwable t) {
+            return "打开文件失败: " + t.getClass().getSimpleName() + ": " + t.getMessage();
+        }
+    }
+
+    /** 自检：跑 testR2 看桥通不通。 */
+    public static String test() {
+        if (!loaded) return "radare2 未加载: " + loadError;
+        try {
+            Class<?> k = Class.forName("com.r2aibridge.R2Core");
+            Object inst = k.newInstance();
+            k.getMethod("initR2Core").invoke(inst);
+            java.lang.reflect.Method m = k.getMethod("testR2");
+            return String.valueOf(m.invoke(inst));
+        } catch (Throwable t) {
+            return "自检失败: " + t.getClass().getSimpleName() + ": " + t.getMessage();
+        }
+    }
+
+    private static String[] availableMethods() {
+        try {
+            Class<?> k = Class.forName("com.r2aibridge.R2Core");
+            java.lang.reflect.Method[] ms = k.getDeclaredMethods();
+            String[] out = new String[ms.length];
+            for (int i = 0; i < ms.length; i++) {
+                out[i] = ms[i].getName() + "("
+                        + Arrays.toString(ms[i].getParameterTypes()) + ")";
+            }
+            return out;
+        } catch (Throwable t) {
+            return new String[]{"<无法列出>"};
+        }
+    }
+
+    /** 状态摘要，供 Engine_Status 展示。 */
+    public static String describe(Context c) {
+        File d = dir(c);
+        if (!d.isDirectory()) return "radare2: 引擎目录不存在";
+        int have = 0;
+        for (String n : LOAD_ORDER) if (new File(d, n).exists()) have++;
+        return "radare2: 库 " + have + "/" + LOAD_ORDER.length
+                + "，已加载=" + loaded
+                + (loadError != null ? ("，错误=" + loadError) : "");
+    }
+}

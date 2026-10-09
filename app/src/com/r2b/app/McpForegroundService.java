@@ -172,6 +172,18 @@ public class McpForegroundService extends Service {
                         emit("引擎已就绪");
                     }
                     emit(EngineUnpacker.describe(McpForegroundService.this));
+                    // radare2 需要在后台线程加载（30 个 so，耗时且不能阻塞主线程）
+                    emit("加载 radare2…");
+                    Radare2Bridge.LoadReport r2 = Radare2Bridge.load(McpForegroundService.this);
+                    if (r2.ok) {
+                        emit("radare2 就绪：已加载 " + r2.loaded.size() + " 个库");
+                        if (!r2.missing.isEmpty()) {
+                            emit("  缺失（非关键）: " + r2.missing);
+                        }
+                        emit("  自检: " + Radare2Bridge.test());
+                    } else {
+                        emit("radare2 不可用: " + r2.error);
+                    }
                 } catch (Exception e) {
                     emit("引擎释放失败: " + e.getMessage());
                 }

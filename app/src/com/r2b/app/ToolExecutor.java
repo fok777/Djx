@@ -590,6 +590,169 @@ public final class ToolExecutor {
     // ---------- radare2 ----------
 
     private void r2(String n, JSONObject a, JSONObject out) throws Exception {
+        String cmd = opt(a, "command", "cmd");
+        String target = opt(a, "so", "path", "file", "apk_path");
+        if (target == null) target = currentApk;
+
+        // 1) 主路径：内置 radare2（JNI 桥 + 23 个 libr_*.so），不依赖任何外部 App
+        Radare2Bridge.LoadReport rep = Radare2Bridge.load(ctx);
+        if (rep.ok) {
+            if (target != null && new File(target).isFile()) {
+                String opened = Radare2Bridge.open(target);
+                out.put("open_result", opened);
+            }
+            String realCmd = cmd != null ? cmd : defaultR2Cmd(n);
+            String res = Radare2Bridge.cmd(realCmd);
+            out.put("engine", "radare2 (内置 JNI 桥)");
+            out.put("heuristic", false);
+            out.put("command", realCmd);
+            out.put("output", res);
+            out.put("libs_loaded", rep.loaded.size());
+            if (!rep.missing.isEmpty()) {
+                out.put("libs_missing", new JSONArray(rep.missing));
+            }
+            return;
+        }
+
+        // 2) 降级 A：Termux（若用户装了并授权）
+        TermuxExecutor tx = termux();
+        if (tx.usable() && target != null) {
+            String realCmd = cmd != null ? cmd : defaultR2Cmd(n);
+            String full = "r2 -q -c '" + realCmd.replace("'", "'\\''") + "' '" + target + "'";
+            TermuxExecutor.Result r = tx.run(full, 60000);
+            if (r.ok) {
+                out.put("engine", "radare2 (Termux)");
+                out.put("heuristic", false);
+                out.put("exit_code", r.exitCode);
+                out.put("command", full);
+                out.put("output", r.stdout);
+                return;
+            }
+            out.put("termux_error", r.error);
+        }
+
+        // 3) 降级 B：内置 ELF 解析（只能给符号/字符串，没有反汇编）
+        out.put("engine", "内置 ELF 解析（非 radare2）");
+        out.put("heuristic", true);
+        out.put("error", "radare2 不可用: "
+                + (rep.error != null ? rep.error : "未知原因"));
+        out.put("hint", "需要 files/engine/radare2/ 下的 23 个 libr_*.so "
+                + "+ libr2aibridge.so，且设备须为 arm64");
+        if (target != null && new File(target).isFile()) {
+            try {
+                NativeAnalyzer.ElfInfo elf = NativeAnalyzer.parseElf(new File(target));
+                if (elf.error == null) {
+                    out.put("arch", elf.arch);
+                    out.put("symbol_count", elf.symbols.size());
+                    out.put("string_count", elf.strings.size());
+                }
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private static String defaultR2Cmd(String tool) {
+        switch (tool) {
+            case "R2_Analyze": return "aaa";
+            case "R2_Functions": return "afl";
+            case "R2_Strings": return "iz";
+            case "R2_Info": return "iI";
+            case "R2_Sections": return "iS";
+            case "R2_Symbols": return "is";
+            case "R2_Imports": return "ii";
+            case "R2_Disassemble": return "pdf";
+            default: return "?V";
+        }
+    }
+
+    /** 找可用的 blutter 可执行文件（按 Dart 版本匹配，名义是 .so 实为 PIE）。 */
+    private File blutterBinary(String dartVer) {
+        File dir = new File(engineRoot(ctx), "blutter");
+        if (!dir.isDirectory()) return null;
+        File[] fs = dir.listFiles();
+        if (fs == null) return null;
+        if (dartVer != null && dartVer.length() > 0) {
+            String want = "libblutter_" + dartVer.replace('.', '_');
+            for (File f : fs) {
+                if (f.getName().equals(want + ".so")) return f;
+            }
+        }
+        // 没指定版本：挑体积最大的（通常是最全的新版）
+        File best = null;
+        for (File f : fs) {
+            if (!f.getName().startsWith("libblutter")) continue;
+            if (best == null || f.length() > best.length()) best = f;
+        }
+        return best;
+    }
+
+    // ---------- Unity ----------
+
+    private void il2cpp(JSONObject a, JSONObject out) throws Exception {
+        File apk = resolveApk(a);
+        NativeAnalyzer.ApkInfo info = NativeAnalyzer.openApk(apk);
+        String entry = null;
+        for (String s : info.libs) {
+            if (s.endsWith("libil2cpp.so")) { entry = s; break; }
+        }
+        if (entry == null) { out.put("error", "未找到 libil2cpp.so（非 Unity IL2CPP 应用）"); return; }
+        File so = NativeAnalyzer.extractEntry(apk, entry, workDir());
+        if (so == null) { out.put("error", "提取失败"); return; }
+        NativeAnalyzer.ElfInfo elf = NativeAnalyzer.parseElf(so);
+        if (elf.error != null) { out.put("error", elf.error); return; }
+        out.put("lib", entry);
+        out.put("arch", elf.arch);
+        out.put("stack", "Unity (IL2CPP)");
+        out.put("symbol_count", elf.symbols.size());
+        out.put("string_count", elf.strings.size());
+        JSONArray arr = new JSONArray();
+        int lim = a.optInt("limit", 200);
+        for (NativeAnalyzer.Sym s : elf.symbols) {
+            if (s.name.contains("il2cpp") || s.name.contains("Assembly")) {
+                JSONObject o = new JSONObject();
+                o.put("name", s.name);
+                o.put("addr", s.addr);
+                arr.put(o);
+                if (arr.length() >= lim) break;
+            }
+        }
+        out.put("il2cpp_symbols", arr);
+        out.put("note", "完整类结构需解析 global-metadata.dat，本端为 ELF 符号级结果");
+    }
+
+    // ---------- DEX ----------
+
+    private void dexStrings(JSONObject a, JSONObject out) throws Exception {
+        File apk = resolveApk(a);
+        NativeAnalyzer.ApkInfo info = NativeAnalyzer.openApk(apk);
+        if (info.dexes.isEmpty()) { out.put("error", "APK 中没有 dex"); return; }
+        String want = opt(a, "dex", "entry");
+        String entry = want != null ? want : info.dexes.get(0);
+        File dex = NativeAnalyzer.extractEntry(apk, entry, workDir());
+        if (dex == null) { out.put("error", "提取失败: " + entry); return; }
+        NativeAnalyzer.DexInfo di = NativeAnalyzer.parseDex(dex);
+        if (di.error != null) { out.put("error", di.error); return; }
+        out.put("dex", entry);
+        out.put("version", di.version);
+        out.put("string_count", di.strings.size());
+        out.put("type_count", di.typeNames.size());
+        int lim = a.optInt("limit", 200);
+        JSONArray arr = new JSONArray();
+        for (String s : di.strings) {
+            arr.put(s);
+            if (arr.length() >= lim) break;
+        }
+        out.put("strings", arr);
+        JSONArray cls = new JSONArray();
+        for (String s : di.typeNames) {
+            cls.put(s);
+            if (cls.length() >= lim) break;
+        }
+        out.put("classes", cls);
+    }
+
+    // ---------- radare2 ----------
+
+    private void r2(String n, JSONObject a, JSONObject out) throws Exception {
         // 优先 Termux：那里能跑真实 radare2，能力远超内置解析
         String cmd = opt(a, "command", "cmd");
         String target = opt(a, "so", "path", "file", "apk_path");
