@@ -37,6 +37,8 @@ import java.util.ArrayList;
  */
 public class MainActivity extends Activity {
     LinearLayout mainView, svcView;
+    /** 选完 APK 后的分析结果卡片（内联在主界面，不用切到服务页看日志）。 */
+    LinearLayout apkCard;
     TextView fileBox, logView, statusText;
     LinearLayout toolsRoot;
     Handler ui = new Handler(Looper.getMainLooper());
@@ -100,6 +102,11 @@ public class MainActivity extends Activity {
         stRow.addView(ready, new LinearLayout.LayoutParams(0, -1, 1f));
         stRow.addView(copyLog);
         mainView.addView(stRow, gap());
+        // APK 分析结果：选完文件直接在这里出，不再只往服务日志里打
+        apkCard = new LinearLayout(this);
+        apkCard.setOrientation(LinearLayout.VERTICAL);
+        apkCard.setVisibility(View.GONE);
+        mainView.addView(apkCard, gap());
         root.addView(mainView);
 
         // ===== 远程服务面板（默认隐藏）=====
@@ -876,21 +883,72 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
-        // 选完 APK 立刻同步：工具调用会用它作为默认输入
-        if (req == 101 && res == RESULT_OK && data != null && data.getData() != null && fileBox != null) {
-            String shown = fileBox.getText() == null ? "" : fileBox.getText().toString();
-            String real = resolvePickedPath(data.getData(), shown);
-            if (real != null) {
-                if (toolExec == null) toolExec = new ToolExecutor(this);
-                toolExec.setCurrentApk(real);
-                McpForegroundService.pushApkToService(real);
-                appendLog("已选择 APK: " + real);
-            }
-        }
-        if (req == 101 && res == RESULT_OK && data != null && data.getData() != null) {
-            fileBox.setText(data.getData().getLastPathSegment());
+        if (req != 101 || res != RESULT_OK || data == null || data.getData() == null) return;
+        final android.net.Uri uri = data.getData();
+        String shown = fileBox == null || fileBox.getText() == null
+                ? "" : fileBox.getText().toString();
+        final String real = resolvePickedPath(uri, shown);
+        if (fileBox != null) {
+            fileBox.setText(uri.getLastPathSegment());
             fileBox.setTextColor(0xFF1A73E8);
-            if (logView != null) logView.append("\n[APK] 已选 " + data.getData() + "，将由 r2b_apk_open 处理");
         }
+        appendLog("已选择: " + uri);
+        if (real == null) {
+            appendLog("无法解析为本地路径，请尝试从内部存储选择");
+            ApkResultCard.showResult(MainActivity.this, apkCard, "无法读取",
+                    "拿不到本地路径：\n" + uri
+                    + "\n\nAndroid 10+ 分区存储下，部分来源只能拿到 content:// URI。"
+                    + "请改用文件管理器选择，或先把文件复制到内部存储。");
+            return;
+        }
+        if (toolExec == null) toolExec = new ToolExecutor(this);
+        toolExec.setCurrentApk(real);
+        McpForegroundService.pushApkToService(real);
+
+        // 立即在主界面解析并展示——不用切到服务页看日志
+        final File f = new File(real);
+        ApkResultCard.showResult(this, apkCard, "解析中…", f.getName());
+        new Thread(new Runnable() { public void run() {
+            final NativeAnalyzer.ApkInfo info = NativeAnalyzer.openApk(f);
+            ui.post(new Runnable() { public void run() {
+                ApkResultCard.render(MainActivity.this, apkCard, info, f,
+                        new ApkResultCard.ActionListener() {
+                            public void onAction(String action, String arg) {
+                                runToolAction(action, arg);
+                            }
+                        });
+                appendLog("解析完成: " + (info == null ? "失败" : info.entries.size() + " 个条目"));
+            } });
+        } }).start();
+    }
+
+    /** 卡片上的动作：真执行并把结果回显到卡片。 */
+    void runToolAction(final String action, final String arg) {
+        appendLog("执行: " + action + " " + arg);
+        ApkResultCard.showResult(this, apkCard, "执行中…", action);
+        new Thread(new Runnable() { public void run() {
+            String title = action;
+            String body;
+            try {
+                if (toolExec == null) toolExec = new ToolExecutor(MainActivity.this);
+                org.json.JSONObject out = new org.json.JSONObject();
+                if ("strings".equals(action)) {
+                    toolExec.execute("Dex_Strings", new org.json.JSONObject(), out);
+                } else {
+                    org.json.JSONObject a = new org.json.JSONObject();
+                    a.put("so", arg);
+                    a.put("path", arg);
+                    a.put("apk_path", toolExec.getCurrentApk());
+                    toolExec.execute("Blutter_Analyze", a, out);
+                }
+                body = out.toString(2);
+            } catch (Throwable t) {
+                body = "失败: " + t.getClass().getSimpleName() + ": " + t.getMessage();
+            }
+            final String tb = body, tt = title;
+            ui.post(new Runnable() { public void run() {
+                ApkResultCard.showResult(MainActivity.this, apkCard, tt + " 结果", tb);
+            } });
+        } }).start();
     }
 }

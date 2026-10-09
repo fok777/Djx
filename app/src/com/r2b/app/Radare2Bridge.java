@@ -92,9 +92,18 @@ public final class Radare2Bridge {
     private static volatile String loadError = null;
     private static final Object LOCK = new Object();
 
-    /** 引擎目录：files/engine/radare2/ */
+    /**
+     * radare2 的 so 所在目录。
+     * 打包进 lib/arm64-v8a/ 后由系统提取到 nativeLibraryDir，
+     * 不再走 filesDir/engine/radare2（那条路径现在不存在）。
+     */
     public static File dir(Context c) {
-        return new File(EngineUnpacker.engineRoot(c), "radare2");
+        File nd = EngineUnpacker.nativeDir(c);
+        if (nd != null && nd.isDirectory()) return nd;
+        // 兜底：老版本可能释放过
+        File legacy = new File(EngineUnpacker.engineRoot(c), "radare2");
+        if (legacy.isDirectory()) return legacy;
+        return nd != null ? nd : legacy;
     }
 
     /** 加载全部 so（幂等）。 */

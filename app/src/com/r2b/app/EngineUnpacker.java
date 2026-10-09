@@ -103,6 +103,14 @@ public final class EngineUnpacker {
             ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.directory(exe.getParentFile());
             pb.redirectErrorStream(true);
+            // 关键：exec 一个 PIE 可执行文件时，Android linker 只在默认路径
+            // （/system/lib64 等）解析 DT_NEEDED，不会自动搜 nativeLibraryDir。
+            // 不设 LD_LIBRARY_PATH 就会报
+            // "Cannot link executable ... libc++_shared.so not found"。
+            String libPath = exe.getParent();
+            String oldLd = pb.environment().get("LD_LIBRARY_PATH");
+            pb.environment().put("LD_LIBRARY_PATH",
+                    oldLd == null || oldLd.isEmpty() ? libPath : libPath + ":" + oldLd);
             Process p = pb.start();
             java.io.InputStream is = p.getInputStream();
             java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
