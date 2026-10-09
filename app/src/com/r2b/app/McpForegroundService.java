@@ -89,12 +89,29 @@ public class McpForegroundService extends Service {
     }
 
     private McpService mcp;
+
+    /** 供 Activity 把选中的 APK 告诉服务，工具调用时自动用它做默认输入。 */
+    public static void setCurrentApk(Context c, String path) {
+        lastApk = path;
+    }
+
+    /** 把当前 APK 同步给正在运行的服务实例。 */
+    public static void pushApkToService(String path) {
+        lastApk = path;
+        if (active != null && active.mcp != null && active.mcp.executor() != null) {
+            active.mcp.executor().setCurrentApk(path);
+        }
+    }
+
+    private static volatile String lastApk;
+    private static volatile McpForegroundService active;
     private PowerManager.WakeLock wakeLock;
     private WifiManager.WifiLock wifiLock;
 
     @Override
     public void onCreate() {
         super.onCreate();
+        active = this;
         createChannel();
         acquireLocks();
     }
@@ -131,12 +148,15 @@ public class McpForegroundService extends Service {
             Log.w(TAG, "读取 tools_data.json 失败", e);
         }
 
-        mcp = new McpService(port, backend == null ? "" : backend, toolsJson,
+        mcp = new McpService(this, port, backend == null ? "" : backend, toolsJson,
                 new McpService.Sink() {
                     public void onLog(String line) {
                         emit(line);
                     }
                 });
+        if (mcp.executor() != null && lastApk != null) {
+            mcp.executor().setCurrentApk(lastApk);
+        }
         mcp.start();
 
         // 起服务顺带确保引擎已释放（幂等，已释放则跳过）

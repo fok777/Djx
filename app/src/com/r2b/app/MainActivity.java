@@ -40,6 +40,8 @@ public class MainActivity extends Activity {
     LinearLayout toolsRoot;
     Handler ui = new Handler(Looper.getMainLooper());
     McpService mcp;
+    /** 本机工具执行器：点击工具直接真跑，不必依赖外部客户端。 */
+    ToolExecutor toolExec;
     /** 服务日志回调（注册到 McpForegroundService）。 */
     final McpForegroundService.LogSink sink = new McpForegroundService.LogSink() {
         public void onLog(final String line) {
@@ -155,6 +157,8 @@ public class MainActivity extends Activity {
         sv.addView(root);
         setContentView(sv);
 
+        toolExec = new ToolExecutor(this);
+
         bindServiceLog();       // 接收前台服务的日志
         syncServiceState();     // 与实际运行状态对齐（进程可能已被杀）
         askBatteryWhitelist();  // 引导加入电池优化白名单，否则后台易被杀
@@ -251,6 +255,10 @@ public class MainActivity extends Activity {
                     String nm = t.optString("name"), ds = t.optString("desc");
                     View r = toolRow(e.optString("icon", "\u2699"), color, engName, nm, ds);
                     r.setTag(engName + " " + nm + " " + ds);
+                    final String toolName = nm;
+                    r.setOnClickListener(new View.OnClickListener() {
+                        public void onClick(View v) { runTool(toolName); }
+                    });
                     rs.add(r);
                     tl.addView(r, gapS());
                 }
@@ -367,6 +375,64 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(0, -1, 1f);
         r.addView(ic); r.addView(t, tlp);
         return r;
+    }
+
+    /** 点击工具：本机真实执行并把结果展示出来。 */
+    void runTool(final String toolName) {
+        if (toolExec == null) toolExec = new ToolExecutor(this);
+        appendLog("\u25b6 调用 " + toolName + " …");
+        new Thread(new Runnable() { public void run() {
+            String res;
+            try {
+                JSONObject args = new JSONObject();
+                String apk = toolExec.getCurrentApk();
+                if (apk != null) {
+                    args.put("apk_path", apk);
+                    args.put("path", apk);
+                }
+                res = toolExec.execute(toolName, args);
+            } catch (Exception e) {
+                res = "{\"error\": \"" + e.getMessage() + "\"}";
+            }
+            final String r = res;
+            ui.post(new Runnable() { public void run() {
+                appendLog("\u25c0 " + toolName + " 完成（" + r.length() + " 字符）");
+                showResultDialog(toolName, r);
+            } });
+        } }).start();
+    }
+
+    /** 结果展示：可滚动、可复制。 */
+    void showResultDialog(String title, String json) {
+        String pretty = json;
+        try {
+            JSONObject o = new JSONObject(json);
+            pretty = o.toString(2);
+        } catch (Exception ignored) {
+        }
+        final String text = pretty;
+        ScrollView sv = new ScrollView(this);
+        TextView t = new TextView(this);
+        t.setText(pretty);
+        t.setTextSize(11);
+        t.setTypeface(Typeface.MONOSPACE);
+        t.setTextColor(0xFF202124);
+        t.setTextIsSelectable(true);
+        t.setPadding(dp(14), dp(14), dp(14), dp(14));
+        sv.addView(t);
+        android.content.ClipboardManager cm =
+                (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        new AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(sv)
+            .setPositiveButton("关闭", null)
+            .setNeutralButton("复制结果", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) {
+                    if (cm != null) cm.setPrimaryClip(
+                            android.content.ClipData.newPlainText("r2b", text));
+                }
+            })
+            .show();
     }
 
     boolean hasRoot() {
@@ -646,6 +712,45 @@ public class MainActivity extends Activity {
         if (svcView != null && svcView.getVisibility() == View.VISIBLE) syncServiceState();
     }
 
+    /** 把 SAF 选中的 Uri 尽量转成可直接访问的路径。 */
+    String resolvePickedPath(Uri uri, String display) {
+        // 1) 先试常见公开目录（Download 等）
+        String name = null;
+        if (display != null && display.length() > 0) {
+            name = display;
+            if (name.startsWith("primary:")) name = name.substring(8);
+            int i = name.lastIndexOf('/');
+            if (i >= 0) name = name.substring(i + 1);
+        }
+        if (name != null) {
+            File[] dirs = {
+                android.os.Environment.getExternalStoragePublicDirectory(
+                        android.os.Environment.DIRECTORY_DOWNLOADS),
+                new File("/sdcard/Download"),
+                new File("/sdcard/Downloads"),
+            };
+            for (File d : dirs) {
+                if (d == null) continue;
+                File c = new File(d, name);
+                if (c.exists() && c.isFile()) return c.getAbsolutePath();
+            }
+        }
+        // 2) 拷到私有目录，保证一定能读
+        try {
+            java.io.InputStream is = getContentResolver().openInputStream(uri);
+            if (is == null) return null;
+            File out = new File(getCacheDir(), "picked.apk");
+            java.io.FileOutputStream os = new java.io.FileOutputStream(out);
+            byte[] buf = new byte[65536];
+            int r;
+            while ((r = is.read(buf)) > 0) os.write(buf, 0, r);
+            os.close(); is.close();
+            return out.getAbsolutePath();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** 电池优化白名单：不加入的话系统会在几分钟内杀掉后台服务。 */
     void askBatteryWhitelist() {
         if (Build.VERSION.SDK_INT < 23) return;
@@ -675,6 +780,17 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
+        // 选完 APK 立刻同步：工具调用会用它作为默认输入
+        if (req == 101 && res == RESULT_OK && data != null && data.getData() != null && fileBox != null) {
+            String shown = fileBox.getText() == null ? "" : fileBox.getText().toString();
+            String real = resolvePickedPath(data.getData(), shown);
+            if (real != null) {
+                if (toolExec == null) toolExec = new ToolExecutor(this);
+                toolExec.setCurrentApk(real);
+                McpForegroundService.pushApkToService(real);
+                appendLog("已选择 APK: " + real);
+            }
+        }
         if (req == 101 && res == RESULT_OK && data != null && data.getData() != null) {
             fileBox.setText(data.getData().getLastPathSegment());
             fileBox.setTextColor(0xFF1A73E8);

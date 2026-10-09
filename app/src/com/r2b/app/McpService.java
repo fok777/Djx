@@ -1,5 +1,6 @@
 package com.r2b.app;
 
+import android.content.Context;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -34,21 +35,27 @@ public class McpService {
         void onLog(String line);
     }
 
+    private final Context ctx;
     private final int port;
-    private final String backendUrl;   // 为空表示只提供工具表
+    private final String backendUrl;   // 为空表示本机执行
     private final String toolsJson;    // assets/tools_data.json 原文
     private final Sink sink;
+    private final ToolExecutor executor;
 
     private ServerSocket server;
     private ExecutorService pool;
     private volatile boolean running;
 
-    public McpService(int port, String backendUrl, String toolsJson, Sink sink) {
+    public McpService(Context ctx, int port, String backendUrl, String toolsJson, Sink sink) {
+        this.ctx = ctx.getApplicationContext();
         this.port = port;
         this.backendUrl = backendUrl;
         this.toolsJson = toolsJson;
         this.sink = sink;
+        this.executor = new ToolExecutor(ctx);
     }
+
+    public ToolExecutor executor() { return executor; }
 
     public boolean isRunning() {
         return running;
@@ -233,11 +240,26 @@ public class McpService {
                 return rpcResult(id, res);
             }
             if ("tools/call".equals(method)) {
-                String f = forward(raw);
-                if (f != null) return f;
-                return rpcError(id, -32001,
-                        "本端只提供工具表；实际执行需在设置里配置 Python 后端地址，"
-                                + "或由本机 adb/内网部署 r2b run_sse.py");
+                JSONObject params = req.optJSONObject("params");
+                String toolName = params != null ? params.optString("name", "") : "";
+                JSONObject args = params != null ? params.optJSONObject("arguments") : null;
+
+                // 配了 Python 后端就转发；否则本机真实执行
+                if (backendUrl != null && backendUrl.length() > 0) {
+                    String f = forward(raw);
+                    if (f != null) return f;
+                }
+                log("调用工具 " + toolName);
+                String result = executor.execute(toolName, args);
+                JSONObject res = new JSONObject();
+                try {
+                    res.put("content", new JSONArray()
+                            .put(new JSONObject().put("type", "text").put("text", result)));
+                    res.put("isError", false);
+                } catch (Exception e) {
+                    return rpcError(id, -32603, "结果封装失败: " + e.getMessage());
+                }
+                return rpcResult(id, res);
             }
             if ("ping".equals(method)) {
                 return rpcResult(id, new JSONObject());

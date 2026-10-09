@@ -132,3 +132,49 @@
 每个图标出 5 个密度（24~96px）放 `app/res/drawable-*/`，
 `tools_data.json` 新增 `icon_res` 字段指向资源名。
 搜索框输入时自动取消图标条的选中态，避免两种过滤打架。
+
+## 稳定性改造：前台服务（第十三轮）
+
+旧架构把 MCP 的 ServerSocket 开在 Activity 线程里，Activity 被系统回收
+（切后台 / 内存紧张 / 熄屏）时线程立刻被杀，表现就是"挂着挂着闪退"。
+
+### 1. 服务搬进前台 Service（根治闪退）
+
+新增 `McpForegroundService`：
+
+- `startForeground` + 通知栏常驻，进程优先级提升
+- `START_STICKY`：进程被杀后系统尝试重建
+- `WakeLock` + `WifiLock`：熄屏后 CPU / WiFi 不休眠，socket 不断连
+- `onTaskRemoved` 不自杀；`stopWithTask=false`
+- Activity 只做控制面板，`onDestroy` 只解绑日志回调，绝不杀服务
+
+Manifest 补权限：`FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_SPECIAL_USE` /
+`WAKE_LOCK` / `POST_NOTIFICATIONS` / `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`。
+
+### 2. 生命周期与保活
+
+- `onResume` 通过端口探测同步真实状态（比记标志位可靠）
+- 首次启动引导加入电池优化白名单，否则系统几分钟就杀后台
+- Android 13+ 请求通知权限
+- `bufferedLog()`：Activity 重建后补回历史日志
+
+### 3. 后端工具调用超时
+
+新增 `cfg.tool_timeout`（默认 120 秒，`R2B_TOOL_TIMEOUT` 可调）。
+单个工具卡死不再拖垮整个 HTTP 服务，超时返回明确错误。
+实测：设 3 秒后 3.0 秒抛 TimeoutError，正常调用不受影响。
+
+### 4. 引擎资产补全
+
+- 引擎二进制改为 `ZIP_STORED` 不压缩，释放更快
+- radare2：工作流从官方 release 取 `android-aarch64` 包，23 个 `libr_*.so`
+- frida-server：修了解压命名问题（`xz -dk` 只去掉 .xz，必须显式重定向）
+
+APK 内容：raw 248.0 MB，55 个 .so
+（blutter 23 / radare2 24 / unidbg 9 / frida 2）
+
+### 修掉的构建 bug
+
+- `bash build.sh | tee` 的退出码来自 tee，脚本失败也判成功 → 加 `set -o pipefail`
+- 重复的 `@Override`（注释插在注解与方法之间）
+- `MainActivity` 缺 `android.util.Log` 导入
