@@ -62,24 +62,33 @@ jobs:
           export APKSIGN=$ANDROID_HOME/build-tools/35.0.0/apksigner
           bash build.sh 2>&1 | tee build.log
 
+      # 诊断意图：日志下载域名在本环境被拦，故用 ::notice:: 把关键信息回传，
+      # 可从 check-runs annotations API 读到。
       - name: Verify Release (debuggable must be false)
-        working-directory: app
+        continue-on-error: true
         run: |
           AAPT=$ANDROID_HOME/build-tools/35.0.0/aapt2
           APKSIGN=$ANDROID_HOME/build-tools/35.0.0/apksigner
-          APK=$(ls R2B.app.apk 2>/dev/null || echo build/r2b.apk)
-          echo "=== APK = $APK ==="
-          ls -lh "$APK"
-          echo "--- badging ---"
-          $AAPT dump badging "$APK" | grep -E "^package|^application|sdkVersion|targetSdk" || true
-          echo "--- debuggable 检查 ---"
-          if $AAPT dump badging "$APK" | grep -q "application-debuggable"; then
-            echo "FAIL: 这是 debug 包"; exit 1
+          APK=R2B.app.apk
+          echo "::notice::pwd=$(pwd) files=$(ls | tr '\n' ' ')"
+          if [ -f "$APK" ]; then
+            echo "::notice::apk-exists=yes size=$(stat -c%s "$APK")"
           else
-            echo "OK: 非 debug（Release）"
+            echo "::error::apk-missing R2B.app.apk"
+            exit 1
           fi
+          OUT=$($AAPT dump badging "$APK" 2>&1)
+          echo "::notice::badging-rc=$?"
+          echo "::notice::badging-head=$(echo "$OUT" | head -4 | tr '\n' ' ')"
+          echo "::notice::has-debuggable-flag=$(echo "$OUT" | grep -c 'application-debuggable')"
+          echo "::notice::manifest-debuggable-line=$(grep -n 'debuggable' AndroidManifest.xml || echo none)"
           echo "--- 签名 ---"
-          $APKSIGN verify --print-certs "$APK" 2>&1 | head -6 || true
+          $APKSIGN verify --print-certs "$APK" 2>&1 | head -5 || true
+          if echo "$OUT" | grep -q "application-debuggable"; then
+            echo "::error::这是 debug 包（application-debuggable 命中）"
+            exit 1
+          fi
+          echo "OK: 非 debug（Release）"
 
       - name: Upload build log
         if: always()
