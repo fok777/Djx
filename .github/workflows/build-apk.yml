@@ -80,7 +80,9 @@ jobs:
           ls "$GITHUB_WORKSPACE/assets/engine/radare2/" | head -30
 
       # frida-server 解压后约 50MB，超过 GitHub blob API 单文件上限，
-      # 因此不进 git 仓库，构建时从官方 release 取（xz 压缩包 14.9MB）。
+      # 因此不进 git 仓库，构建时从官方 release 取（xz 压缩包约 15MB）。
+      # 注意：`xz -dk fs.xz` 会解出名为 "fs" 的文件（只是去掉 .xz），
+      # 不能直接当 release 里的文件名用，必须显式重定向到固定名字。
       - name: Fetch frida-server
         continue-on-error: true
         run: |
@@ -92,18 +94,17 @@ jobs:
           curl -fsSL -o fs.xz "$URL"
           echo "::notice::frida-xz-size=$(stat -c%s fs.xz 2>/dev/null || echo 0)"
           if command -v xz >/dev/null; then
-            xz -dk fs.xz || xz -d -f fs.xz || true
+            xz -dc fs.xz > fs.bin
           else
-            python3 -c "import lzma,shutil;shutil.copyfileobj(lzma.open('fs.xz'),open('fs.bin','wb'))" || true
-            mv fs.bin frida-server-$VER-android-arm64 2>/dev/null || true
+            python3 -c "import lzma; open('fs.bin','wb').write(lzma.open('fs.xz').read())"
           fi
-          ls -lh /tmp | head -20
-          SRC=$(ls frida-server-$VER-android-arm64 2>/dev/null || echo "")
-          if [ -n "$SRC" ]; then
-            cp "$SRC" "$DEST"
+          echo "::notice::frida-bin-size=$(stat -c%s fs.bin 2>/dev/null || echo 0)"
+          if [ -s fs.bin ]; then
+            cp fs.bin "$DEST"
+            chmod 755 "$DEST"
             echo "::notice::frida-server-installed=$(stat -c%s "$DEST")"
           else
-            echo "::warning::frida-server 下载或解压失败，该引擎将缺失"
+            echo "::warning::frida-server 解压失败，该引擎将缺失"
           fi
 
       - name: Build Release APK (not debuggable)
