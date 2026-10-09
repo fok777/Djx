@@ -1,0 +1,11 @@
+# 引擎资产体积大，不入库，用 tools/fetch_engines.py 或 install_engines.py 获取
+assets/engine/blutter/*.so
+assets/engine/frida/*
+assets/engine/unidbg/*.jar
+assets/engine/unidbg/*.so
+
+__pycache__/
+*.pyc
+build/
+*.apk
+out_test/

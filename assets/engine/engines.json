@@ -1,0 +1,60 @@
+{
+  "_说明": "外部引擎调用约定。引擎全是开源项目，装好后用 Engine_Set 配调用方式，Engine_Status 显示 callable=true 后自动生效。",
+  "_三种模式": {
+    "subprocess": "配套有可执行程序/脚本。cmd 是参数模板，占位符 {exe} {libapp} {libdir} {outdir} {dart_version} 来自调用时传入的 kwargs",
+    "ctypes": "直接 dlopen so 调导出函数。必填 entry（入口函数名），可选 argtypes/restype/args",
+    "module": "Python 扩展模块，可直接 import。填 module + entry"
+  },
+  "_开源地址": {
+    "blutter": "https://github.com/worawit/blutter",
+    "unidbg": "https://github.com/zhkl0228/unidbg",
+    "frida": "https://github.com/frida/frida",
+    "radare2": "https://github.com/radareorg/radare2"
+  },
+  "engines": {
+    "blutter": {
+      "_两种形态": {
+        "A_so可执行文件": "libblutter_<版本>.so —— 名字是 .so 实为 PIE 可执行（含 main、.interp=linker64），arm64。用法 <exe> -i libapp.so -o outdir",
+        "B_官方仓库": "blutter.py / bin/blutter_dartvm{ver}_{os}_{arch}。用法 python3 blutter.py <libdir> <outdir>"
+      },
+      "_注意": "形态 A 是 arm64，只能在 Android/Termux 上跑；x86 机器上 dlopen 与 exec 都会失败",
+      "mode": "subprocess",
+      "cmd": [
+        "{exe}",
+        "-i",
+        "{libapp}",
+        "-o",
+        "{outdir}"
+      ],
+      "cmd_alt_blutter_py": [
+        "python3",
+        "{blutter_py}",
+        "{libdir}",
+        "{outdir}"
+      ],
+      "blutter_py": "blutter.py"
+    },
+    "radare2": {
+      "_提示": "radare2 自身由 r2_engine 通过 subprocess 调用，此处留空即可",
+      "mode": ""
+    },
+    "unidbg": {
+      "_提示": "java 库，用 subprocess 跑 java -cp <jar> <MainClass>",
+      "mode": "subprocess",
+      "cmd": [
+        "java",
+        "-cp",
+        "{jar}",
+        "{main_class}"
+      ],
+      "path": "assets/engine/unidbg/unidbg-android.jar"
+    },
+    "frida_gadget": {
+      "_提示": "gadget so 是注入进目标 App 用的，不需要直接调用，留空",
+      "mode": "subprocess",
+      "cmd": [
+        "{exe}"
+      ]
+    }
+  }
+}

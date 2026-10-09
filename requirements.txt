@@ -1,0 +1,12 @@
+# Radare2Blutter MCP (R2B) 依赖
+# 由源码 import 扫描生成，不含标准库。
+# 安装：pip install -r requirements.txt
+
+# 二进制解析（engine/elf.py 等）
+pyelftools
+
+# 反汇编引擎（arm64 指令解析）
+capstone
+
+# 抓包引擎（engine/capture.py，通过 mitmdump 启动；不需要可跳过）
+mitmproxy

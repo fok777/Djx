@@ -1,0 +1,554 @@
+Guide: 【使用流程总览】使用本 MCP 工具集的第一步永远是 Apk_Open。
+Apk_Open 自动识别 APK/SO 文件类型，走不同流程。
+r2 已内置于 App，所有 R2_* 工具开箱即用。
+R2_Open 自动构建函数索引 + 后台全量伪C导出（≤5000函数存内存，>5000存SQLite防OOM）。
+
+本地使用:
+第1步  Apk_Open(file="/sdcard/xxx.apk")   解压APK，返回会话ID
+ 或   Apk_Open(file="/sdcard/xxx.so")    直接注册SO，返回会话ID
+
+局域网使用:
+第0步  curl POST /upload -F "file=@xxx"    返回 upload_id
+第1步  Apk_Open(upload_id=返回的ID)        自动识别类型
+
+后续步骤（只需传会话ID）:
+第2步  R2_Open(session_id=会话ID)          打开 so（自动建索引+后台导出伪C）
+第3步  R2_Get_PseudoC / R2_Search_PseudoC  从内存取伪C（毫秒级）
+        R2_Analyze / Apply_Hex_Patch         分析并修改
+第4步  Apk_Pack(仅APK) / File_Download      打包/下载
+第5步  Apk_Close(session_id)                清理
+
+注意: 所有工具都使用 session_id，AI 永远不需要处理文件路径。
+
+调用此工具无需参数，返回使用指引。
+R2_Version: 测试 r2 引擎是否可用并返回版本信息。首次使用前应先调用此工具确认 r2 原生库正常加载。返回: radare2 版本号、架构、编译日期、Git commit、许可证等。无需任何参数。
+R2_Open: 打开二进制文件(.so/.dex/.elf等)并创建r2分析会话。
+自动执行 aflj 构建函数索引，并后台启动全量伪C导出。
+≤5000函数存内存（毫秒级），>5000函数自动存SQLite到so同目录下（防OOM）。
+返回8位session_id + 函数数 + 存储模式。
+同一文件再次打开会复用已有r2进程(秒回)，最多10个并发会话。
+
+【本地使用】R2_Open(file="/sdcard/xxx.so")
+【局域网】R2_Open(session_id="apk会话ID") 或 R2_Open(upload_id="xxx")
+R2_Close: 关闭r2会话并释放资源（含伪C缓存）。会话默认自动保持可复用，仅在需要释放内存时调用。
+参数: session_id(必填)。
+R2_Cmd: 执行任意r2命令并返回输出。最通用的工具，所有r2 shell命令都可这里执行。
+常用命令示例:
+  afl        列出所有函数
+  af @addr   分析指定地址的函数
+  pd 20      反汇编20条指令
+  iz         列出字符串
+  izzq       快速字符串搜索(带地址)
+  /x 1f2003d5  搜索hex模式(NOP)
+  axt @addr  查看交叉引用
+  axt @sym   查看谁调用了某函数
+  wao nop @addr  NOP掉指定地址
+  CC "注释" @ addr  在地址添加注释
+  afn newname @addr  重命名函数
+参数: session_id(必填), command(必填,r2命令字符串), timeout(可选,默认30秒)。
+R2_Analyze: 对已打开的二进制执行自动分析。分析后才能用R2_Functions列出函数、R2_Xrefs查交叉引用等。
+参数: session_id(必填), mode(可选,aa=快速分析(默认)/aaa=深度分析)。
+注意: 大文件首次分析可能需要几秒，后续操作都在内存中秒回。
+R2_Disassemble: 反汇编指定地址的机器码为汇编指令(ARM64/x86等)。
+地址可以是十六进制(0x1234)或符号名(main)。不传address则从当前光标位置开始。
+参数: session_id(必填), address(可选,默认当前光标位置), count(可选,默认10条指令)。
+示例: session_id=xxx, address=0xd9876c, count=20
+R2_Seek: 移动光标到指定地址。后续的R2_Disassemble/R2_Hexdump等操作将以此位置为基准。
+地址可为十六进制(0x1234)或符号名(main)。
+参数: session_id(必填), address(必填,目标地址)。
+R2_Info: 查看已打开二进制的元信息(架构、端序、入口点、大小等)。
+参数: session_id(必填)。
+R2_Functions: 列出所有函数。优先从 R2_Open 已建好的内存索引读取（秒回），无需先执行 R2_Analyze。
+每行: 地址 大小 函数名。
+参数: session_id(必填), keyword(可选,按名字过滤)。
+R2_Search_Functions: 按函数名搜索定位。从 R2_Open 已建好的索引中模糊匹配，返回匹配的函数地址+大小+名字。
+拿到地址后可用 R2_Get_PseudoC 查伪C、R2_Xrefs 查交叉引用。
+参数: session_id(必填), query(必填,搜索词), max_results(可选,默认20)。
+R2_Strings: 从二进制提取可打印字符串。常用于快速查看 so/apk 中有什么文本内容。
+mode=iz(默认): 只扫描数据段，速度快，适合大多数情况；
+mode=izz: 扫描整个文件，速度慢但更全，能发现代码段/只读段里的字符串。
+返回格式: 地址 类型 字符串内容。
+参数: session_id(必填), mode(可选,iz/izz), timeout(可选,默认60秒)。
+提示: 如果只需要找某个特定关键词，优先使用 R2_Search_String 更快更省资源。
+R2_Search_String: 在二进制中按关键词搜索可读字符串。AI 需要搜索字符串时，优先使用本工具而不是 R2_Search。
+一次性将 so 读入内存，多线程并行扫描，适合大文件全文件搜索，避免 r2 30秒超时问题。
+与 R2_Strings 的区别: R2_Strings 是枚举所有字符串，R2_Search_String 是只找包含关键词的字符串，结果更少更快。
+返回格式: 0xaddress: "匹配字符串"（context>0 时附带 hex 上下文）。
+参数: session_id(必填), query(必填), mode(可选,exact/contains,默认contains), case_sensitive(可选,默认true), encoding(可选,utf-8/ascii,默认utf-8), threads(可选,默认4), context(可选,默认0), timeout(可选,默认60秒), max_results(可选,默认1000)。
+提示: 文件 > 200MB 会拒绝，防止 OOM。
+R2_Sections: 列出ELF/PE/MachO的段(Section)信息: 段名、虚拟地址、大小、权限。
+参数: session_id(必填)。
+R2_Imports: 列出导入的外部函数(动态链接符号)。常用于分析调用了哪些系统/第三方API。
+参数: session_id(必填)。
+R2_Hexdump: 以十六进制+ASCII形式查看指定地址的内存数据。
+左侧十六进制字节，右侧ASCII可打印字符。不传address则从当前光标位置开始。
+参数: session_id(必填), address(可选,默认当前光标位置), count(可选,默认256字节)。
+示例: session_id=xxx, address=0xd9876c, count=64
+R2_Calculate: 计算表达式/地址运算。支持十六进制数学(0x1000+0x200)和符号解析(main+0x10)。
+参数: session_id(必填), expression(必填,如 0x1000+0x200)。
+R2_Xrefs: 查找谁调用了指定地址的函数/访问了指定地址的数据。需先执行R2_Analyze。
+参数: session_id(必填), address(必填,地址或符号名如 main)。
+R2_List_Sessions: 列出所有活跃的r2分析会话。显示会话ID+文件路径。上限10个并发。无需参数。
+R2_Hash: 计算文件哈希值(md5/sha1/sha256)。用于校验文件完整性。
+参数: session_id(必填), type(可选,默认sha256)。
+R2_Search: 在二进制中搜索十六进制字节模式（如机器码特征、magic、常量）。适合搜指令片段、硬编码地址、协议特征等。
+注意: 这是 hex 字节搜索，不是字符串搜索。要搜可读字符串请用 R2_Search_String。
+threads=1(默认): 单线程，使用 r2 原生搜索，结果精确；
+threads>1: 多进程分片并行搜索，适合大文件（>10MB）或已知耗时较长的搜索，会临时启动多个 r2 进程。
+返回格式: 匹配地址和对应字节。
+参数: session_id(必填), pattern(必填,十六进制字符串如 1f2003d5), threads(可选,默认1), timeout(可选,默认60秒)。
+R2_Entries: 列出入口点(Entry Points)。ELF文件通常为_start入口地址。
+参数: session_id(必填)。
+R2_Exports: 列出导出符号(其他模块可调用的函数/变量)。.so文件即Java_xxx等JNI导出接口。
+参数: session_id(必填)。
+Read_Logcat: 读取Android系统日志(logcat)。支持按tag过滤和行数限制。
+无需root即可使用(普通模式)；如返回为空或权限不足，会自动尝试su获取全量日志。
+参数: lines(可选,默认50), tag(可选,过滤标签如 R2AI)。
+Os_List_Dir: 列出Android设备上指定目录的内容(ls -la)。
+参数: path(可选,默认/)。
+Os_Read_File: 读取设备上文本文件内容(cat)。二进制文件会乱码，建议用R2_Hexdump。
+参数: path(必填,文件绝对路径)。
+R2_Decompile_Function: 【实时反编译】直接调 r2 引擎反编译，不经缓存。
+与 R2_Get_PseudoC 的区别: Get_PseudoC 从预编译缓存读(毫秒级)，本工具实时跑r2(需几秒)。
+使用场景:
+  1. 需要用 r2ghidra 引擎(pdg)获得更准确的伪C时
+  2. R2_Get_PseudoC 缓存未命中时的备选
+  3. 想用不同引擎(pdc/pdg/pdd)重新反编译对比时
+参数: session_id(必填), address(必填), engine(可选,pdc=快速默认/pdg=r2ghidra更准/pdd=直接模式)。
+R2_Get_PseudoC: 【首选】从预编译缓存获取函数伪C，毫秒级返回。R2_Open 时已自动后台导出全部函数伪C。
+≤5000函数存内存，>5000自动存SQLite防OOM。
+缓存未命中时自动 fallback 到实时反编译。
+如需 r2ghidra 引擎(pdg)更精准反编译，请用 R2_Decompile_Function。
+参数: session_id(必填), address(必填,0x地址)。
+返回: 函数伪C代码文本。
+R2_Search_PseudoC: 在已缓存的全量伪C中搜索关键词/正则。支持内存和SQLite两种模式。
+返回: 每个匹配函数的地址 + 函数名 + 1行关键代码片段（截断80字符，够AI判断用途）。
+上下文极简，不会爆。AI 判断后用 R2_Get_PseudoC(addr) 取完整伪C。
+参数: session_id(必填), query(必填), regex(可选,默认false), max_results(可选,默认15)。
+R2_PseudoC_Status: 查看后台全量伪C导出进度。
+参数: session_id(必填)。
+返回: 导出状态、存储模式、已完成/总数、缓存大小。
+R2_Export_PseudoC_To_File: 将全量伪C导出到文件。
+SQLite模式: 数据已在磁盘，直接返回目录路径。
+内存模式: 写入 /storage/emulated/0/Download/Flutter分析结果/ 目录。
+返回: 文件/目录路径，可用 File_Download 下载。
+参数: session_id(必填)。
+R2_Analyze_Target: 按特定策略对目标地址进行局部递归分析。可用于只分析某个函数而不扫全文件。策略: basic(默认aa快速分析)/blocks(aab基本块)/calls(aac函数调用)/refs(aar交叉引用)/pointers(aad数据指针)/full(aaa全能分析)。参数: session_id(必填), strategy(可选,默认basic), address(可选,起始地址)。返回: 分析结果。
+R2_Analyze_File: 快速通道: 打开文件→分析(aa)→列出函数→自动关闭。适合一次性分析。
+参数: file_path(与session_id二选一), session_id(可选,复用已有会话)。
+R2_Config_Manager: 读写r2运行期配置(e命令)。不传value时查询当前值。
+常用配置: asm.arch(架构), asm.bits(位数), analysis.strings(自动提取字符串)。
+参数: session_id(必填), key(必填,如 asm.arch), value(可选,留空为查询)。
+R2_Analysis_Hints: 管理分析提示(ah命令系列)——在指定地址覆盖架构/位数/跳转目标等，帮助r2正确反汇编混淆代码。
+action与参数对应:
+  list: 无需address
+  set_arch: 需要address + arch(如 arm, arm64)
+  set_bits: 需要address + bits(如 32, 64)
+  override_jump: 需要address + target(跳转目标地址)
+  remove: 需要address
+参数: session_id(必填), action(可选,默认list), address, arch, bits, target(因action而异)。
+R2_Manage_Xrefs: 管理/查询/创建交叉引用(ax命令系列)。
+action: list_to(谁引用了目标)/list_from(目标引用谁)/add_code/add_call/add_data/add_string(添加引用)/remove_all(删除)。
+参数: session_id(必填), action(必填), target_address(必填), source_address(add时需要)。
+Find_Jni_Methods: 搜索所有JNI导出函数(Java_xxx符号)。快速定位Java层native声明对应的C/C++实现。
+参数: session_id(必填)。
+Apply_Hex_Patch: 对指定地址写入十六进制字节补丁(修改机器码)。写入后自动验证。
+常用于NOP跳转/修改条件/注入代码。如 1f2003d5 为ARM64 NOP(r2 wx 内存字节序)。
+参数: session_id(必填), address(必填), hex_bytes(必填,十六进制如 1f2003d5)。
+注意: 修改写入磁盘文件，如需打包回APK请用Apk_Pack。
+Rename_Function: 重命名函数(afn命令)。改名后R2_Functions会显示新名称。
+参数: session_id(必填), address(必填,函数地址), name(必填,新函数名)。
+Scan_Crypto_Signatures: 扫描密码学常量特征(AES/DES/MD5/SHA的S-box、常数表等)。快速定位加密算法实现。
+参数: session_id(必填)。
+Shell_Command: 在Android设备上执行Shell命令。默认以应用用户执行，use_root=true则以root(su)执行。
+参数: command(必填), use_root(可选,默认false)。
+File_Download: 获取文件下载ID，用于局域网下载修改后的文件。
+传入 APK 会话ID，返回 SO 文件的下载ID。
+用法: 拿到下载ID后，用 curl -O http://安卓IP:5051/download/{下载ID} 下载文件。
+参数: apk_session_id(必填,Apk_Open 返回的会话ID)。
+Sqlite_Query: 用Android原生SQLiteDatabase API执行SQL。无需sqlite3命令。
+SELECT/PRAGMA/WITH以只读打开；INSERT/UPDATE/DELETE/CREATE以读写打开。
+文件不可读时如有root权限会自动su cp到临时目录再操作。
+参数: db_path(必填), query(必填,SQL语句)。
+Apk_Open: 【第1步】打开 APK/SO 文件，自动识别类型走不同流程。
+
+【本地使用】直接传 file 路径:
+  Apk_Open(file="/sdcard/xxx.apk")
+  Apk_Open(file="/sdcard/xxx.so")
+
+【局域网使用】先上传，再传 upload_id:
+  1. curl -X POST http://安卓IP:5051/upload -F "file=@xxx"
+  2. Apk_Open(upload_id=返回的upload_id)
+
+【类型自动识别】
+  APK (.apk/.zip) → 解压提取 so + Flutter 检测 + Blutter 分析
+  SO (.so/.elf)   → 直接 r2 打开，返回 r2 会话 ID，一步到位
+
+返回: APK→解压结果 + so列表；SO→r2会话ID，可直接用 R2_* 工具。
+参数: file(本地路径) 或 upload_id(上传ID)。
+arch(APK可选,默认自动检测), skip_blutter(APK可选,默认false)。
+Apk_Close: 关闭 APK 会话: 关闭关联的 Blutter 会话 + 删除解压的 so 临时文件。
+参数: session_id(必填,Apk_Open 返回的APK会话ID)。返回: 清理确认。
+Apk_Install: 【安装】静默安装 APK 并启动应用，返回进程ID。
+root 环境: pm install -r 静默安装 + am start 启动。
+非 root: 尝试 pm install，失败则提示手动安装。
+安装后自动启动应用并返回 PID，可直接用于 Fr_Attach/Fr_Spawn。
+
+【局域网使用】:
+  1. curl POST /upload 上传 APK
+  2. Apk_Open(upload_id) 获取会话ID
+  3. Apk_Install(apk_session_id=会话ID) → 安装启动，返回 PID
+
+参数: apk_session_id(必填,Apk_Open 返回的会话ID)。
+Apk_Pack: 【打包】将修改后的 so 替换回原 APK 并重新打包签名。
+从 Apk_Open 的临时目录中读取修改后的 so，替换原 APK 中对应的 so 文件，重新打包并签名。
+
+【本地使用】传 apk_session_id 即可（自动获取原APK路径）:
+  Apk_Pack(apk_session_id="xxx")
+
+【局域网使用】同上:
+  Apk_Pack(apk_session_id="xxx")
+
+输出: 新 APK 路径(在原 APK 同目录下，文件名带 _成品 后缀)。
+参数: apk_session_id(必填,Apk_Open 返回的会话ID)。
+Blutter_Analyze: 对Flutter APK的libapp.so执行Dart快照分析(耗时3-5秒即可)。
+【完整工作流】Apk_Open解压 → Blutter_Analyze(3-5秒) → Blutter_Classes/Blutter_Strings(毫秒级秒出) → Blutter_To_R2跳转。
+自动检测Dart版本并匹配内置Blutter二进制。分析完成后缓存全部类/函数/字符串结果到内存，后续查询毫秒级返回。
+自动复用: 相同libAppPath的会话已存在时直接返回已有结果，无需重复分析。
+参数: lib_app_path(必填), lib_flutter_path(可选,用于精确版本检测), timeout_seconds(可选,默认30)。
+Blutter_Classes: 从内存缓存搜索 Dart 类列表(毫秒级返回)。
+【工作流】Blutter_Analyze完成 → 用此工具搜索类 → Blutter_Class_Detail查看详情。
+每行: 类名 | 父类 | 偏移 | 方法数 | 字段数。
+用法: 先用此工具搜索类名(如 http, engine, widget)，再用 Blutter_Class_Detail 看详情。
+注意: 不要用grep搜索，直接用此工具秒出结果。
+参数: session_id(填Blutter_Analyze返回的ID，不是Apk_Open的APK会话ID), filter(可选,类名关键词)。
+Blutter_Class_Detail: 查看指定 Dart 类的完整结构。
+显示: 继承链 | 对象偏移/大小 | 所有字段(类型+偏移) | 所有方法签名 | 函数列表。
+用法: 先用 Blutter_Classes 搜索类名，再用此工具查看详情。字段偏移可用于 r2_patch 或 Frida 脚本读写。
+参数: session_id(填Blutter_Analyze返回的ID), class_name(必填,类名或关键词，支持模糊匹配)。
+Blutter_Functions: 搜索所有 Dart 函数(毫秒级返回，从内存缓存)。
+【工作流】Blutter_Analyze完成 → 用此工具搜函数(如build, login) → Blutter_To_R2跳转 → R2_Disassemble/R2_Patch。
+返回: 函数名 | 所在类 | 偏移(0x...) | 大小。
+注意: 不要用grep搜索，直接用此工具秒出结果。
+参数: session_id(填Blutter_Analyze返回的ID), class_name(可选,限定某个类), filter(可选,函数名关键词)。
+Blutter_Disassemble: 查看 Dart 函数的完整汇编代码。
+
+【无参数调用】返回所有 asm 文件名列表，AI 可据此导航：
+  Blutter_Disassemble(session_id)  → 文件列表
+
+【指定文件名】返回该文件内所有函数/类的索引表：
+  Blutter_Disassemble(session_id, function_name="文件名")
+
+【指定函数名】返回该函数的完整反汇编（从类声明到函数结束，不做行数截断）：
+  Blutter_Disassemble(session_id, function_name="函数名")
+
+输出格式: Blutter Dart IR 汇编，每行含 native 地址引用。
+配合 open_r2=true 自动打开 r2 会话做 ARM 交叉验证。
+参数: session_id(必填), function_name(可选,文件名或函数名), open_r2(可选,默认true)
+Blutter_Strings: 搜索 Dart 快照中的字符串常量(毫秒级返回，从内存缓存)。
+【工作流】Blutter_Analyze完成 → 用此工具搜字符串(如VIP) → Blutter_Functions找引用 → Blutter_To_R2定位。
+常用于定位关键文本(如'VIP'、'已解锁'、'网络异常')、API URL、错误消息等。
+注意: 不要用grep搜索，直接用此工具秒出结果。
+参数: session_id(填Blutter_Analyze返回的ID), filter(可选,关键词过滤)。返回: 匹配的字符串列表(最多100条)。
+Blutter_PP_Table: 读取 pp.txt(池化对象表，毫秒级返回，从内存缓存)。
+【工作流】Blutter_Analyze完成 → 用此工具查偏移 → Blutter_To_R2跳转定位。
+pp.txt 包含 Dart 所有类/函数/字符串在 libapp.so 中的精确偏移(hex)，是定位 native 函数地址的核心工具。
+每行: 类型 | 偏移 | 大小 | 引用关系。支持关键词过滤。
+注意: 不要用grep搜索，直接用此工具秒出结果。
+参数: session_id(填Blutter_Analyze返回的ID), filter(可选,关键词如类名/函数名/偏移地址)。
+Blutter_Object_Layouts: 读取 objs.txt(对象布局表，毫秒级返回，从内存缓存)。
+【工作流】Blutter_Analyze完成 → 用此工具查对象字段偏移 → 写Frida脚本或r2_patch。
+objs.txt 包含每个 Dart 对象的字段偏移、类型继承链、内存大小，用于理解对象结构和编写 Frida 脚本读写字段。
+支持关键词过滤。例如搜 'MyAppState' 查看该类的所有字段偏移。
+注意: 不要用grep搜索，直接用此工具秒出结果。
+参数: session_id(填Blutter_Analyze返回的ID), filter(可选,关键词如类名/字段名)。
+Blutter_Frida: 导出 Frida Hook 脚本(Blutter_Frida.js)。
+包含所有 Dart 函数的 Interceptor 桩代码。保存为 .js 后在 PC 执行: frida -U -l script.js -f com.app --no-pause。
+注意: 当前环境不内置 frida-server，需 PC 端配合；如手机已安装 frida-server + root，可直接注入。
+参数: session_id(填Blutter_Analyze返回的ID)。返回: JavaScript 脚本全文。
+Blutter_To_R2: 【Blutter→r2桥梁】从Blutter跳转到r2，自动打开libapp.so并seek到指定函数偏移。
+【工作流】Blutter_Analyze完成 → Blutter_To_R2跳转 → 获得r2会话ID → R2_Disassemble/R2_Hexdump/R2_Patch操作。
+之后可直接用R2_Disassemble/R2_Hexdump/R2_Patch等工具操作。
+参数: session_id(填Blutter_Analyze返回的ID), function_name(必填,函数名，支持模糊匹配)。
+返回: r2会话ID + 跳转位置。
+Blutter_Patch: 在native层修改Dart函数。自动打开libapp.so，seek到函数入口，执行patch。
+action: ret(写ret指令暴力禁用)/nop(NOP填充)/custom(自定义字节码)。
+参数: session_id(必填), function_name(必填), action(必填), bytes(可选,action=custom时必填的hex如 1f2003d5)。
+返回: patch前后hexdump对比。注意: 直接修改so文件，如需打包回APK请用Apk_Pack。r2 wx 使用内存字节序。
+Blutter_Modify_String: 修改 Dart 快照(libapp.so)中的字符串常量。
+【工作流】Blutter_Analyze → Blutter_Strings(定位字符串) → Blutter_Modify_String(修改) → Apk_Pack(打包)。
+自动从 pp.txt 获取偏移，在 libapp.so 中搜索实际字节位置，替换为 new_string。
+限制: 新字符串不能长于原字符串（超出部分会截断）；如等长或更短，尾部用空格填充。
+适用于修改 UI 文本、VIP 标识、加密秘钥等常量。
+参数: session_id(必填), search_str(必填,要查找的原字符串), replace_str(必填,新字符串)。
+返回: 每处匹配的 pp偏移/文件偏移/修改前后hex对比。
+Blutter_To_Frida_Hook: 【桥梁·Blutter→Frida】Blutter 分析的函数偏移 → 自动计算运行时地址 → 注入Hook。
+前置: Apk_Open → Blutter_Analyze(blutter_sid) + Fr_Attach(frida_sid)
+本工具: 从blutter取偏移→从frida取模块基址→生成Interceptor.attach→注入→返回send()数据
+后接: Fr_Read_Messages → 收取hook数据
+链式: Blutter_Functions(定位) → Blutter_To_Frida_Hook → Fr_Read_Messages
+与 Fr_To_R2 互逆: 这是 static→runtime, Fr_To_R2 是 runtime→static。
+参数: blutter_session_id(必填), frida_session_id(必填), function_name(必填),
+  hook_type(默认both), replace_value(可选), module_hint(默认libapp.so)。
+Blutter_Dart_Access: 【桥梁·运行时读写】Blutter objs.txt 字段偏移 → Frida 运行时读写 Dart 对象字段。
+前置: Blutter_Find_Instances → 获得实例地址(instance_addr)
+本工具: 从objs.txt取字段偏移+类型 → 生成JS读写内存 → 返回修改前后对比
+后接: 直接生效(运行时修改), 无需打包
+链式: Blutter_Find_Instances → Fr_Read_Messages → Blutter_Dart_Access(instance_addr=...,action=write)
+action: read(读字段值)/write(写字段值,需instance_addr+new_value)。
+参数: blutter_session_id(必填), frida_session_id(必填), class_name(必填), action(必填,read/write),
+  field_name(可选), instance_addr(write必填), new_value(write必填)。
+Blutter_Find_Instances: 【桥梁·实例→字段】Hook Dart 类方法入口 → 捕获 this 指针(对象实例地址)。
+前置: Blutter_Analyze(blutter_sid) + Fr_Attach(frida_sid), 已知目标类名
+本工具: 从blutter取类的方法列表→选最佳候选(build/initState/createState)→注入hook→捕获实例地址
+后接: Fr_Read_Messages(收取实例地址) → Blutter_Dart_Access(读写字段)
+链式: Blutter_Find_Instances → Fr_Read_Messages → Blutter_Dart_Access(instance_addr=<地址>)
+参数: blutter_session_id(必填), frida_session_id(必填), class_name(必填),
+  method_name(可选), module_hint(默认libapp.so)。
+Blutter_Info: 查看 Blutter 分析会话统计信息: Dart 版本、类数/函数数/字符串数、Blutter 二进制版本、输出文件列表。
+参数: session_id(填Blutter_Analyze返回的ID)。
+Blutter_Logs: 查看 Blutter_Analyze 的完整执行日志(stdout+stderr)，用于排查分析失败原因。
+参数: session_id(填Blutter_Analyze返回的ID)。
+Blutter_Close: 关闭 Blutter 分析会话并释放内存。会话默认自动保持可复用，仅在需要释放内存或重新分析时调用。
+参数: session_id(填Blutter_Analyze返回的ID)。
+Blutter_List_Sessions: 光速查询 — 列出所有活跃的 Blutter 分析会话。返回: 会话ID + 目标文件 + Dart 版本。无需参数。
+Blutter_Annotate_R2: 【Blutter→r2集成】将Blutter IR字段偏移和pp.txt字符串自动注入到r2反汇编注释中。
+【工作流】Blutter_To_R2跳转后 → 用此工具自动标注 → r2反汇编时看到字段名和字符串注释。
+支持增量运行(CC覆盖写入，不产生重复)。
+参数: session_id(填Blutter_Analyze返回的ID), function_filter(可选), annotate_pp(可选,默认true), pp_filter(可选,只标注含关键词的pp字符串)。
+返回: 标注统计+耗时。
+Fr_Detect: 【第一步：环境检查】
+检测设备上 frida 环境的可用性。
+检查: frida-server 二进制、frida-server 进程、io_frida.so 插件、r2 子进程、Root 权限。
+在所有 Fr 操作前先调用此工具确认环境就绪。
+无需参数。
+Fr_Start_Server: 【第二步：启动服务】
+启动 frida-server。
+从 nativeLibraryDir 直接通过 su -c 后台启动。先停止旧进程再启动新的。需要 root 权限。
+Fr_Attach 和 Fr_Spawn 内部会自动调用此工具，但建议手动先跑一次确认无报错。
+成功后可以接 Fr_Detect 确认服务状态，或直接接 Fr_Attach / Fr_Spawn。
+无需参数。
+Fr_Stop_Server: 停止 frida-server。
+通过 su 发送 killall 命令停止 frida-server 进程。
+无需参数。
+Fr_Kill: 杀死一个进程（PID 或包名）。
+用途: 分析前清理旧进程、Kill 不需要的后台App、Spawn 失败后清理残留。
+参数: target(必填,进程 PID 或名称)。
+Fr_Apps: 列出设备上安装的第三方应用（包名和APK路径）。
+用途: 为 Fr_Spawn 提供准确的包名参数，或排查目标 App 是否已安装。
+支持按包名关键词过滤。
+参数: filter(可选,包名过滤关键词)。
+Fr_LoadScript: 从本地文件加载并执行 JavaScript 脚本到 Frida 会话。
+脚本内容会被读入并执行。适用于预编写的复杂 Hook 脚本。
+前提: 已建立 Frida 会话。
+参数: session_id(必填), script_path(必填,JS 文件绝对路径)。
+Fr_SSL_Pinning_Disable: 【破防】绕过 Android 应用的 SSL Pinning 校验。
+调用时机: 在 Fr_Attach 或 Fr_Spawn 之后立即调用（如果用 Fr_Spawn，App 处于挂起状态，此时注入可在网络请求前生效）。
+如目标App有证书校验导致接口不可达，先跑这个再跑 Fr_Discover。
+需要先建立 Frida 会话（Fr_Attach/Fr_Spawn 返回的 session_id）。
+参数: session_id(必填)。
+Fr_Root_Detect_Bypass: 【破防】绕过 Android 应用的 Root 检测。
+调用时机: 在 Fr_Attach 或 Fr_Spawn 之后立即调用。如果用 Fr_Spawn 且 App 启动时立即检测 Root，必须在放行(:dc)前注入。
+Hook File.exists、Runtime.exec、SystemProperties 等常见 Root 检测点。
+需要先建立 Frida 会话。
+参数: session_id(必填)。
+Fr_Discover: 【热点发现】使用 Stalker 在目标进程中采样 N 毫秒，统计每个函数被调用的次数。
+返回 JSON: {modules: {...}, targets: [[moduleId, funcName, visibility, address, callCount],...]}。
+调用时机: 破防后（如有），在 App 执行关键操作（如进开屏页）时运行。
+结果拿到后: 选 callCount 高的可疑函数名，喂给 Fr_Trace 深入跟踪。
+参数: session_id(必填), duration_ms(可选,默认5000)。
+Fr_Trace: 【精确跟踪】跟踪指定函数的每次调用，记录参数和返回值。
+前置步骤: 从 Fr_Discover 拿到函数名/地址，或从 Fr_Classes 拿到类名.方法名。
+target 格式: module!symbol（原生导出）、0xaddress（地址）、class.method（Java方法）。
+返回 JSON 数组，每项含 {type, time, args, ret}。
+拿到精确调用数据后可接 Fr_Eval 写自定义 Hook。
+参数: session_id(必填), target(必填), duration_ms(可选,默认5000)。
+Fr_Ls: 列出目标设备上的文件/目录。
+使用 root 权限执行 ls -la。
+参数: path(必填,要列出的路径)。
+Fr_Rm: 删除目标设备上的文件或目录。
+使用 root 权限执行 rm。
+参数: path(必填), recursive(可选,默认false)。
+Fr_Pull: 从设备远程路径复制文件到本地路径。
+使用 root 权限执行 cp。
+参数: remote_path(必填), local_path(可选,默认 /data/local/tmp/)。
+Fr_Push: 从本地路径推送到设备远程路径。
+使用 root 权限执行 cp。
+参数: local_path(必填), remote_path(必填)。
+Fr_Ps: 列出 Android 设备上运行的进程(类似 frida-ps -U)。
+支持按名称过滤。用于在附加(Fr_Attach)前找到目标进程 PID 或包名。
+优先使用 root 权限执行 ps，回退到非 root ps 命令。
+参数: filter(可选,进程名关键词过滤)。
+Fr_Attach: 【第三步-附加模式：已有进程分析】
+附加到已运行的进程创建 r2frida 会话。
+target 可以是进程 PID(数字，从 Fr_Ps 获取)或包名(如 com.example.app)。
+与 Fr_Spawn 的区别: Fr_Attach 不会重启 App，适用于分析已打开的App；Fr_Spawn 从零启动，适用于抓启动逻辑。
+成功后会创建 r2frida 会话，返回会话ID，后续所有 Fr_* 分析工具都需要此ID。
+前置条件: frida-server 已运行 (Fr_Start_Server)。
+附加后可接 Fr_SSL_Pinning_Disable / Fr_Root_Detect_Bypass 破除防御。
+参数: target(必填,PID或包名), timeout_ms(可选,默认10000)。
+Fr_Spawn: 【第三步-启动模式：App冷启动分析】
+启动目标应用并注入 Frida，在入口点（Application.onCreate / Activity.onCreate）之前建立会话。
+适用于: 分析开屏广告、倒计时、启动校验（这些逻辑在启动瞬间执行，Fr_Attach 来不及）。
+App 启动后会先挂起，等后续 Fr_SSL_Pinning_Disable / Fr_Root_Detect_Bypass 注入后再用 Fr_Cmd 执行 :dc 放行。
+成功返回 Frida 会话ID，后续 Fr_Discover/Fr_Trace/Fr_Eval 等全需要此ID。
+包名可从 Fr_Apps 查询。前置条件: frida-server 已运行 (Fr_Start_Server)。
+参数: app(必填,包名), timeout_ms(可选,默认10000)。
+Fr_Detach: 断开 Frida 会话连接，释放资源。
+参数: session_id(必填,Fr_Attach/Fr_Spawn 返回的会话ID)。
+Fr_Info: 查看 Frida 会话的详细信息。显示目标、模式、连接状态、最后活跃时间和概要。
+参数: session_id(必填)。
+Fr_Cmd: 在 Frida 会话中执行任意 r2frida 命令。
+常用命令: :ij(目标信息), :ilj(库列表), :iEj(导出), :izj(字符串),
+  :ic(类列表), :dmj(内存映射), dp(进程列表), :dc(继续执行) 等。
+所有命令必须以 ':' 开头(r2frida 命名空间)。
+参数: session_id(必填), command(必填,r2frida命令如 :ij)。
+Fr_Eval: 【终极自定义】在 Frida 会话中执行任意 JavaScript 代码。
+当 Fr_Discover / Fr_Trace / Fr_Classes 等封装工具无法满足需求时，用此工具写自定义 Hook、修改变量、调用方法等。
+代码运行在目标进程的 Frida 脚本环境（Java.perform 可用）。
+参数: session_id(必填), js_code(必填,要执行的 JS 代码)。
+Fr_Native_Hook: 【探路·主力】Frida Interceptor.attach 拦截 native 函数，0行手写JS。
+前置: Fr_Attach → 获得 fr_sid
+本工具: hook指定模块/系统的函数, 捕获参数+返回值+可选调用栈
+后接: Fr_Read_Messages → 收取数据
+链式: Fr_Native_Hook → Fr_Read_Messages → Fr_To_R2 → Apply_Hex_Patch → Apk_Pack
+hookType: enter/retval/both/replace。capture_caller=true 可捕获调用方+backtrace。
+参数: session_id(必填), func_offset(必填,hex偏移或导出函数名),
+  module_name(可选), hook_type(默认both), capture_caller(默认false), caller_module(可选)。
+Fr_Find_Callers: 【探路·反混淆】Hook 系统函数 → 抓调用方地址+调用栈 → 定位混淆代码。
+前置: Fr_Attach → 获得 fr_sid
+本工具: Hook 系统函数(如 RSA_verify), 只捕获 caller_module 内的调用方, 返回地址+backtrace
+后接: Fr_Read_Messages 收取 → Fr_To_R2 跳转R2 → Blutter_Patch/Apply_Hex_Patch 修改
+链式: Fr_Find_Callers → Fr_To_R2 → Apply_Hex_Patch → Apk_Pack
+典型: 签名校验=RSA_verify, 加密=AES_CBC, 网络=SSL_write, 文件=open/fopen。
+参数: session_id(必填), func_export(必填,系统函数名),
+  caller_module(强烈建议,限定范围如 libapp.so), module_hint(可选)。
+Fr_Read_Messages: 【收数据】收取 Frida hook 通过 send() 上报的异步数据。
+前置: Fr_Native_Hook/Fr_Find_Callers/Fr_Watch_Class/Blutter_To_Frida_Hook 注入hook
+本工具: 执行?e 0 → flush r2frida缓冲区 → 返回所有pending send()消息
+后接: 重复调用 → 持续收取 → Fr_To_R2(地址→R2分析)
+用法: 注入hook → 操作App触发 → Fr_Read_Messages → 重复。
+参数: session_id(必填)。
+Fr_Dump_Memory: 【桥梁·内存→文件】将目标进程模块内存 dump 到设备文件，供 R2 离线分析。
+前置: Fr_Attach → 获得 fr_sid
+本工具: Frida File API 读取模块内存 → 写入设备文件
+后接: R2_Open(file=<输出路径>) → R2_Analyze 离线分析
+适用: 分析解密后的so(壳), 运行时修改过的代码, 内存取证。
+参数: session_id(必填), module_name(必填,如 libapp.so 或 * 列全部模块),
+  output_path(可选,默认 /sdcard/Download/mem_dump_xxx.bin)。
+Fr_To_R2: 【桥梁·Frida→R2】运行时地址 → 自动打开R2并seek到文件偏移。
+前置: Fr_Attach/Fr_Find_Callers → 获得运行时地址 + Apk_Open → blutter_sid
+本工具: 查模块→减基址→算文件偏移→开R2会话→seek (⚠ 提供blutter_sid确保路径对齐Apk_Pack)
+后接: R2_Disassemble → Blutter_Patch/Apply_Hex_Patch
+链式: Fr_Find_Callers → Fr_To_R2 → Apply_Hex_Patch → Apk_Pack
+与 Blutter_To_Frida_Hook 互逆: Blutter→Frida 是 static→runtime, 这个是 runtime→static。
+参数: frida_session_id(必填), address(必填,运行时hex),
+  blutter_session_id(强烈建议,对齐Apk_Pack的文件路径)。
+Fr_Watch_Class: 【便利·Java类监控】一键 Hook Java 类的所有方法(类似 objection 'watch class')。
+前置: Fr_Attach → 获得 fr_sid, 已知完整类名
+本工具: 枚举方法→生成overload hook→注入→自动捕获参数+返回值+可选调用栈
+后接: Fr_Read_Messages → 收取方法调用数据
+参数: session_id(必填), class_name(必填,完整类名如 com.app.Validator),
+  dump_args(默认true), dump_ret(默认true), dump_bt(默认false)。
+Address_Lookup: 【查询·地址翻译】地址双向查询: 静态偏移↔Blutter信息, 运行时地址↔模块+偏移。
+前置: Blutter_Analyze(blutter_sid) + 可选 Fr_Attach(frida_sid,解析运行时地址)
+本工具: 输入hex地址 → 自动判断类型 → 查Blutter函数/类/常量 → 可选查Frida模块信息
+后接: Blutter_To_R2(跳转分析) 或 Blutter_To_Frida_Hook(生成hook)
+参数: blutter_session_id(必填), address(必填,hex), frida_session_id(可选)。
+Fr_Libraries: 列出目标进程加载的动态库(类似 :ilj)。
+显示库名、基址、大小和路径。支持按名称过滤。
+用于定位目标 so 文件的加载地址，配合 r2 分析。
+参数: session_id(必填), filter(可选,库名关键词)。
+Fr_Exports: 列出目标进程某模块的导出函数(类似 :iEj)。
+显示函数名和地址。支持按名称过滤。
+用于快速定位关键 API 在内存中的地址。
+参数: session_id(必填), filter(可选,函数名关键词)。
+Fr_Strings: 搜索目标进程内存中的字符串(类似 :izj)。
+显示字符串内容和地址。支持关键词过滤。
+用于定位关键文本、URL、错误消息等。
+参数: session_id(必填), filter(可选,字符串内容关键词)。
+Fr_Classes: 列出目标进程中加载的 Java 类和支持关键词过滤。
+用途: 搜索 Activity/Service/自定义类名，定位业务逻辑入口。
+拿到完整类名后可配合 Fr_Trace(target='com.xxx.Class.method') 跟踪。
+参数: session_id(必填), filter(可选,类名关键词)。
+Fr_Search: 在目标进程内存中搜索十六进制模式。
+可用于搜索特定机器码、关键数据等。
+参数: session_id(必填), value(必填,十六进制模式如 48656C6C6F),
+  type(可选,默认hex), protection(可选,内存权限如 rwx 默认rw-),
+  range_min(可选,搜索起始地址), range_max(可选,搜索结束地址), max_results(可选,默认100)。
+Fr_List_Sessions: 列出所有活跃的 Frida 会话。
+显示会话ID、目标、模式和连接状态。无需参数。
+Fr_Close: 关闭指定 Frida 会话并释放资源。
+参数: session_id(必填)。
+Project_Save: 保存当前分析状态为项目。
+记录 session_id、binary_path、r2 命令历史、分析笔记、架构等。
+保存后可通过 Project_Load 恢复。
+参数: session_id(可选,关联的 r2 会话ID), name(必填,项目名),
+  file_path(可选,二进制文件路径), notes(可选,分析笔记),
+  commands(可选,保存的 r2 命令历史,用换行分隔), arch(可选,架构)。
+Project_Load: 加载之前保存的项目。
+返回项目的完整 JSON 内容，包含 session_id、命令历史、笔记等。
+参数: project_id(必填,Project_List 返回的ID)。
+Project_List: 列出所有已保存的分析项目。
+显示: 项目ID、名称、架构、最后修改时间。
+无需参数。
+Project_Delete: 删除指定的已保存项目。
+参数: project_id(必填)。
+Project_Export: 导出项目为分析报告。
+支持 markdown(默认)和 html 两种格式。
+包含: 项目信息、二进制路径、架构、分析笔记等。
+参数: project_id(必填), format(可选,默认markdown,支持html)。
+Ub_Open: 【Unidbg·第1步】加载 so 到 unidbg 模拟器并创建会话，自动执行 JNI_OnLoad/init_array。
+用途: 无真机/无root 离线调用 so 内函数(如 sign/加密/解密)，补 Frida 必须起真进程的短板。
+工作流: Ub_Open → Ub_Call/Ub_Call_Offset → Ub_Dump → Ub_Close。
+参数: file(必填,so绝对路径), call_jni(可选,默认true,是否执行JNI_OnLoad)。
+返回: session_id + 模块基址 + 后端信息。
+Ub_Call: 【Unidbg】按导出符号名调用函数。Java_ 开头自动补 JNIEnv/jobject 参数。返回指针时自动附带字符串预览(ptr_preview)。
+参数: session_id(必填), symbol(必填), args(可选,JSON数组; "jstr:文本"=真jstring, "jobj:名"=dummy jobject), trace(可选,指令级trace输出到logcat)。目标so的printf/stdout输出在logcat(System.out/unidbg tag)可见。
+返回: returnValue(+ptr_preview)。
+Ub_Call_Offset: 【Unidbg】按模块偏移调用函数(适合无符号的内部函数,先用 r2 定位偏移)。返回指针时自动附带字符串预览。
+参数: session_id(必填), offset(必填,hex如0x9a88), args(可选,JSON数组字符串), trace(可选,指令级trace输出到logcat)。
+返回: returnValue(+ptr_preview)。
+Ub_Dump: 【Unidbg】读取模拟器内存。常用于: 函数执行后 dump 输出缓冲区/解密结果/全局变量。
+参数: session_id(必填), address(必填,hex地址,可用模块基址+偏移), size(可选,默认256,最大65536)。
+返回: hex + ascii。
+Ub_Modules: 【Unidbg】列出模拟器已加载模块及基址。配合 Ub_Call_Offset/Ub_Dump 计算绝对地址。
+参数: session_id(必填)。
+Ub_List_Sessions: 【Unidbg】列出所有活跃的 unidbg 模拟会话。无需参数。
+Ub_Close: 【Unidbg】关闭模拟会话并释放资源。
+参数: session_id(必填)。
+Ub_Write: 【Unidbg】写模拟器内存(hex字节)，写后自动回读校验。用于运行时改内存/GOT/代码，无需改磁盘文件。
+参数: session_id(必填), address(必填,hex), hex_bytes(必填,如 1f2003d5)。
+Ub_Regs: 【Unidbg】读/写 CPU 寄存器。不传 set 时返回 x0-x28/fp/lr/sp/pc/nzcv 快照；传 set 先写后读。
+参数: session_id(必填), set(可选,JSON对象如 {"x0":"0x1234","pc":"0x12009a88"})。
+Ub_Alloc: 【Unidbg】在模拟器内 malloc 内存，返回指针地址。用于给函数传输出缓冲区/结构体。
+参数: session_id(必填), size(必填,字节数), init(可选,初始内容: utf8字符串 或 "hex:48656c6c6f")。
+Ub_Free: 【Unidbg】释放 Ub_Alloc 分配的内存块。
+参数: session_id(必填), address(必填,Ub_Alloc返回的地址)。
+Ub_Read_String: 【Unidbg】读 C 字符串(遇\0截断)。
+参数: session_id(必填), address(必填,hex), max_len(可选,默认4096)。
+Ub_Hook: 【Unidbg】在指定地址安装执行 hook，命中时自动快照 x0-x3/lr/sp。用于验证某函数是否被走到、抓取调用参数。
+参数: session_id(必填), address(必填,绝对地址hex 或 "offset:0x9a88" 模块偏移), max_hits(可选,默认50,达上限后停止记录)。
+注意: 钩取范围为 [addr, addr+4] 两条指令(unicorn begin==end 不触发的规避)。
+后接: Ub_Call 触发执行 → Ub_Hook_Hits 取命中记录。
+Ub_Hook_Hits: 【Unidbg】读取 Ub_Hook 的命中记录(地址+x0-x3/lr/sp 快照)，默认读后清空。
+参数: session_id(必填), keep(可选,true则不清空)。
+Ub_Search: 【Unidbg】在内存中搜索 hex 字节模式(机器码特征/常量)。范围默认目标模块全体，最多返回50个匹配。
+参数: session_id(必填), pattern(必填,hex如 1f2003d5), start(可选,hex起始地址), size(可选,配合start,默认模块大小)。
+Ub_Disasm: 【Unidbg】用 capstone 反汇编模拟器内存。适合查看运行时自解密/自修改后的真实代码。
+参数: session_id(必填), address(必填,hex), count(可选,默认10,最大200)。
+Ub_Patch: 【Unidbg】用 keystone 将汇编文本编译为机器码并写入模拟器内存(运行时patch,不改磁盘文件)。
+参数: session_id(必填), address(必填,hex), asm(必填,如 "mov w0, #0; ret")。
+与 Ub_Write 的区别: 直接写汇编助记符，不用手查机器码。
+Ub_Save_State: 【Unidbg】保存 CPU 寄存器快照(内存/补丁保留)。同一函数换参数反复调时: patch一次 → Save → 调用 → Restore → 换参再调。
+参数: session_id(必填)。
+Ub_Restore_State: 【Unidbg】恢复 Ub_Save_State 保存的寄存器快照。
+参数: session_id(必填)。
+Ub_Dump_To_R2: 【Unidbg→R2桥】从 unidbg 模拟器 dump 内存 → 自动用 r2 反汇编 ARM64 指令。
+返回 disasm + r2_session_id。注意: address 需指向代码段(.text)才能正确反汇编，数据段会显示 invalid。
+R2_To_Ub_Call: 【R2→Unidbg桥】从 r2 会话取函数偏移 → 自动在 unidbg 中调用。
+需要 R2_Open 打开真实 SO 文件的会话(含符号分析)，不支持 Ub_Dump_To_R2 创建的 malloc:// 会话。
+Ub_Hook_To_R2_Xrefs: 【Unidbg→R2桥】对 hook 捕获的返回地址，用 r2 查交叉引用 (axt)。
+需要 R2_Open 打开真实 SO 的会话。流程: Ub_Hook → 触发执行 → 本工具分析调用链。
+Blutter_To_Unidbg_Call: 【Blutter→Unidbg桥】从 blutter 取 Dart 函数偏移 → 自动在 unidbg 调用。
+先 Blutter_Functions 定位函数，再用本工具执行。

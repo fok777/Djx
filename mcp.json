@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "r2b": {
+      "command": "python3",
+      "args": ["/var/minis/workspace/flutter_mcp/r2b/run_stdio.py"],
+      "env": { "R2B_WORKDIR": "/var/minis/workspace/flutter_mcp/r2b" }
+    }
+  },
+  "_comment_sse": "远程/局域网模式（HTTP url 直连）：",
+  "r2b_http": {
+    "url": "http://192.168.137.90:5051/mcp"
+  },
+  "_usage": {
+    "stdio": "本地 AI 客户端（Cursor/Claude Desktop）直接拉进程",
+    "http": "python3 run_sse.py --host 0.0.0.0 --port 5051  然后填 url 到 mcpServers",
+    "三种连法": "手机本机AI直连 / 局域网电脑连手机 / SSH隧道远程穿透"
+  }
+}

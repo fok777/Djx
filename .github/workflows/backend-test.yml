@@ -1,0 +1,48 @@
+name: Backend Test
+
+on:
+  push:
+    branches: [ main, master, build-test ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Audit (375 tools self-check)
+        run: python3 -m r2b_mcp.audit | tee audit.log
+
+      - name: Categories
+        run: python3 -m r2b_mcp.categories | tee -a audit.log
+
+      - name: Smoke test HTTP backend
+        run: |
+          python3 run_sse.py --port 5051 > server.log 2>&1 &
+          sleep 3
+          curl -s http://127.0.0.1:5051/health | tee -a audit.log
+          echo
+          curl -s -X POST http://127.0.0.1:5051/mcp \
+            -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            | head -c 400 | tee -a audit.log
+          echo
+          kill %1 || true
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-logs
+          path: |
+            audit.log
+            server.log
+          if-no-files-found: warn

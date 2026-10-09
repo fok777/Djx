@@ -1,0 +1,90 @@
+name: Build R2B APK (Release)
+
+on:
+  push:
+    branches: [ main, master, build-test ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python deps
+        run: pip install -r requirements.txt
+
+      - name: Run backend self-audit
+        run: python3 -m r2b_mcp.audit
+
+      - name: Regenerate tools_data.json
+        run: python3 tools/gen_tools_data.py
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install platform + build-tools 35
+        run: |
+          sdkmanager --install "platforms;android-35" "build-tools;35.0.0" >/dev/null
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+
+      - name: Build Release APK (not debuggable)
+        working-directory: app
+        run: |
+          export AJ=$ANDROID_HOME/platforms/android-35/android.jar
+          export AAPT=$ANDROID_HOME/build-tools/35.0.0/aapt2
+          export D8=$ANDROID_HOME/build-tools/35.0.0/d8
+          export APKSIGN=$ANDROID_HOME/build-tools/35.0.0/apksigner
+          bash build.sh 2>&1 | tee build.log
+        continue-on-error: true
+
+      - name: Verify Release (debuggable must be false)
+        working-directory: app
+        run: |
+          APKSIGN=$ANDROID_HOME/build-tools/35.0.0/apksigner
+          APK=$(ls R2B.app.apk 2>/dev/null || ls build/r2b.apk 2>/dev/null)
+          echo "APK=$APK"
+          AAPT=$ANDROID_HOME/build-tools/35.0.0/aapt2
+          $AAPT dump badging "$APK" | grep -E "^package|application-debuggable" || true
+          echo "--- 签名信息 ---"
+          $APKSIGN verify --print-certs "$APK" 2>&1 | head -8 || true
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: app/build.log
+          if-no-files-found: warn
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: R2B-app-release
+          path: app/R2B.app.apk
+          if-no-files-found: warn
+
+      - name: Publish Release on tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: R2B ${{ github.ref_name }}
+          body: |
+            安卓逆向 MCP 客户端（Release 构建，非 debug）。
+            内置 375 个工具定义，应用内可起 MCP Streamable HTTP 服务（默认 5051）。
+          files: app/R2B.app.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
