@@ -33,13 +33,25 @@ jobs:
       - name: Regenerate tools_data.json
         run: python3 tools/gen_tools_data.py
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install platform + build-tools 35
+      # 不用第三方 setup-android 动作（该动作在新 runner 上常失败），
+      # 直接装官方 cmdline-tools，行为可控。
+      - name: Install Android SDK (cmdline-tools)
         run: |
-          sdkmanager --install "platforms;android-35" "build-tools;35.0.0" >/dev/null
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          set -x
+          CMDLINE_ZIP=commandlinetools-linux-11076708_latest.zip
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          cd "$ANDROID_HOME/cmdline-tools"
+          curl -sSL -o tools.zip \
+            "https://dl.google.com/android/repository/$CMDLINE_ZIP"
+          unzip -q tools.zip
+          rm -f tools.zip
+          mv cmdline-tools latest 2>/dev/null || true
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+          sdkmanager --version
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0" 2>&1 | tail -5
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME"
 
       - name: Build Release APK (not debuggable)
         working-directory: app
@@ -49,18 +61,25 @@ jobs:
           export D8=$ANDROID_HOME/build-tools/35.0.0/d8
           export APKSIGN=$ANDROID_HOME/build-tools/35.0.0/apksigner
           bash build.sh 2>&1 | tee build.log
-        continue-on-error: true
 
       - name: Verify Release (debuggable must be false)
         working-directory: app
         run: |
-          APKSIGN=$ANDROID_HOME/build-tools/35.0.0/apksigner
-          APK=$(ls R2B.app.apk 2>/dev/null || ls build/r2b.apk 2>/dev/null)
-          echo "APK=$APK"
           AAPT=$ANDROID_HOME/build-tools/35.0.0/aapt2
-          $AAPT dump badging "$APK" | grep -E "^package|application-debuggable" || true
-          echo "--- 签名信息 ---"
-          $APKSIGN verify --print-certs "$APK" 2>&1 | head -8 || true
+          APKSIGN=$ANDROID_HOME/build-tools/35.0.0/apksigner
+          APK=$(ls R2B.app.apk 2>/dev/null || echo build/r2b.apk)
+          echo "=== APK = $APK ==="
+          ls -lh "$APK"
+          echo "--- badging ---"
+          $AAPT dump badging "$APK" | grep -E "^package|^application|sdkVersion|targetSdk" || true
+          echo "--- debuggable 检查 ---"
+          if $AAPT dump badging "$APK" | grep -q "application-debuggable"; then
+            echo "FAIL: 这是 debug 包"; exit 1
+          else
+            echo "OK: 非 debug（Release）"
+          fi
+          echo "--- 签名 ---"
+          $APKSIGN verify --print-certs "$APK" 2>&1 | head -6 || true
 
       - name: Upload build log
         if: always()
@@ -75,7 +94,7 @@ jobs:
         with:
           name: R2B-app-release
           path: app/R2B.app.apk
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Publish Release on tag
         if: startsWith(github.ref, 'refs/tags/v')
@@ -84,7 +103,10 @@ jobs:
           name: R2B ${{ github.ref_name }}
           body: |
             安卓逆向 MCP 客户端（Release 构建，非 debug）。
-            内置 375 个工具定义，应用内可起 MCP Streamable HTTP 服务（默认 5051）。
+
+            - 内置 375 个工具定义
+            - 应用内可起 MCP Streamable HTTP 服务（默认 5051）
+            - 二次元 App 图标 + 悬浮窗图标 + 10 个分类图标
           files: app/R2B.app.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
