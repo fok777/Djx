@@ -6,14 +6,15 @@ cd "$(dirname "$0")"
 export AJ="${AJ:-/opt/android-sdk/platforms/android-35/android.jar}"
 export AAPT="${AAPT:-/opt/android-sdk/build-tools/35.0.2/aapt2}"
 export APKSIGN="${APKSIGN:-}"
-# 优先 d8：完整 build-tools 的 d8 > /tmp/bt34 的 d8
-D8=""
+# 优先 d8：环境变量 D8 > $ANDROID_HOME 下的 build-tools > /tmp/bt34 的 d8
+# 注意：不能写成 D8=""，那会把外部传入的值清掉。
+export D8="${D8:-}"
 if [ -z "$D8" ]; then
-  for c in /opt/android-sdk/build-tools/*/d8 /tmp/bt34/android-14/d8; do
+  for c in "${ANDROID_HOME:-/opt/android-sdk}"/build-tools/*/d8 \
+           /opt/android-sdk/build-tools/*/d8 /tmp/bt34/android-14/d8; do
     [ -x "$c" ] && D8="$c" && break
   done
 fi
-export D8
 [ -z "$D8" ] && { echo "缺 d8，设 D8=/path/d8"; exit 3; }
 JC=$(ls /usr/lib/jvm/java-17*/bin/javac 2>/dev/null | head -1 || which javac)
 SP=r2bsecret
