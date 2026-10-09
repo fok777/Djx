@@ -546,21 +546,16 @@ public class MainActivity extends Activity {
     void unpackEngines() {
         new Thread(new Runnable() { public void run() {
             try {
-                final EngineUnpacker u = new EngineUnpacker(MainActivity.this,
-                        new EngineUnpacker.Progress() {
-                            public void onProgress(final String m) {
-                                ui.post(new Runnable() { public void run() {
-                                    if (logView != null) logView.append("\n" + m);
-                                } });
-                            }
-                        });
-                if (u.isUnpacked()) {
+                if (EngineUnpacker.isUnpacked(MainActivity.this)) {
                     ui.post(new Runnable() { public void run() {
                         if (logView != null) logView.append("\n引擎已就绪\n" + EngineUnpacker.describe(MainActivity.this));
                     } });
                     return;
                 }
-                final int n = u.unpack();
+                ui.post(new Runnable() { public void run() {
+                    if (logView != null) logView.append("\n开始释放只读引擎数据…");
+                } });
+                final int n = EngineUnpacker.unpackAssets(MainActivity.this);
                 ui.post(new Runnable() { public void run() {
                     if (logView != null) logView.append("\n引擎释放完成：" + n + " 个文件\n"
                             + EngineUnpacker.describe(MainActivity.this));

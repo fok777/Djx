@@ -1,5 +1,6 @@
 package com.r2b.app;
 
+import java.io.File;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -163,13 +164,21 @@ public class McpForegroundService extends Service {
         new Thread(new Runnable() {
             public void run() {
                 try {
-                    EngineUnpacker u = new EngineUnpacker(McpForegroundService.this, null);
-                    if (!u.isUnpacked()) {
-                        emit("开始释放引擎资产…");
-                        int n = u.unpack();
-                        emit("引擎释放完成：" + n + " 个文件");
+                    if (!EngineUnpacker.isUnpacked(McpForegroundService.this)) {
+                        emit("开始释放只读引擎数据…");
+                        int n = EngineUnpacker.unpackAssets(McpForegroundService.this);
+                        emit("释放完成：" + n + " 个文件");
                     } else {
-                        emit("引擎已就绪");
+                        emit("引擎数据已就绪");
+                    }
+                    emit(EngineUnpacker.describe(McpForegroundService.this));
+                    // 可执行文件必须在 nativeLibraryDir：targetSdk>=29 起
+                    // SELinux 禁止 execve 应用私有目录里的文件，chmod 无法绕过。
+                    File fx = EngineUnpacker.findExecutable(
+                            McpForegroundService.this, "libblutter_3_12_1.so");
+                    emit("blutter 可执行文件: " + (fx == null ? "未找到" : fx.getAbsolutePath()));
+                    if (fx != null) {
+                        emit("  exec 自检: " + EngineUnpacker.tryExec(fx, "--help"));
                     }
                     emit(EngineUnpacker.describe(McpForegroundService.this));
                     // radare2 需要在后台线程加载（30 个 so，耗时且不能阻塞主线程）

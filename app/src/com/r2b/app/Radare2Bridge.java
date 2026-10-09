@@ -155,8 +155,8 @@ public final class Radare2Bridge {
                 loadError = null;
                 Log.i(TAG, "radare2 加载完成，已加载 " + rep.loaded.size() + " 个库");
                 // 跑初始化配置：不设 scr.color=0 的话输出全是 ANSI 转义码
-                for (String c : INIT_CMDS) {
-                    try { cmd(c); } catch (Throwable ignored) {}
+                for (String initCmd : INIT_CMDS) {
+                    try { cmd(initCmd); } catch (Throwable ignored) {}
                 }
                 Log.i(TAG, "r2 初始化命令已执行");
             } catch (Throwable t) {
