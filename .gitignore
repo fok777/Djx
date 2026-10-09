@@ -6,3 +6,5 @@ build/
 *.apk
 out_test/
 .idea/
+# frida-server 49.6MB 超过 GitHub blob API 上限，改由工作流从官方 release 下载
+assets/engine/frida/frida-server
