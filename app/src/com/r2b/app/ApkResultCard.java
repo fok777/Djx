@@ -114,7 +114,9 @@ public final class ApkResultCard {
                 if (cm != null) cm.setText(apk == null ? "" : apk.getAbsolutePath());
             }
         }));
-        card.addView(acts, space(c, 4));
+        LinearLayout.LayoutParams actsLp = new LinearLayout.LayoutParams(-1, -2);
+        actsLp.topMargin = dp(c, 4);
+        card.addView(acts, actsLp);
     }
 
     /** 展示任意一段分析结果（用于后续工具结果的回显）。 */

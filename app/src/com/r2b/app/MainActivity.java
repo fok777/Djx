@@ -931,17 +931,15 @@ public class MainActivity extends Activity {
             String body;
             try {
                 if (toolExec == null) toolExec = new ToolExecutor(MainActivity.this);
-                org.json.JSONObject out = new org.json.JSONObject();
                 if ("strings".equals(action)) {
-                    toolExec.execute("Dex_Strings", new org.json.JSONObject(), out);
+                    body = toolExec.execute("Dex_Strings", new org.json.JSONObject());
                 } else {
                     org.json.JSONObject a = new org.json.JSONObject();
                     a.put("so", arg);
                     a.put("path", arg);
                     a.put("apk_path", toolExec.getCurrentApk());
-                    toolExec.execute("Blutter_Analyze", a, out);
+                    body = toolExec.execute("Blutter_Analyze", a);
                 }
-                body = out.toString(2);
             } catch (Throwable t) {
                 body = "失败: " + t.getClass().getSimpleName() + ": " + t.getMessage();
             }
