@@ -368,3 +368,60 @@ def patch_session(action: str = "list", session: str = "", target: str = "",
         return {"session_id": session, "work_dir": d,
                 "max_version": max(vs) if vs else 0, "audit": hist}
     return {"error": "未知 action: %s" % action}
+
+
+def capstone_disasm(hex_str: str = "", so: str = "", path: str = "",
+                    offset: int = 0, length: int = 256, addr: int = 0,
+                    arch: str = "arm64", count: int = 0, **kw):
+    """
+    Capstone 反汇编（Python 侧：用 capstone 模块；安卓端走 JNI 桥）。
+
+    与安卓端 CapstoneJni 行为对齐：传 hex 或 文件+offset+length。
+    """
+    code = None
+    src = so or path
+    if hex_str:
+        c = "".join(ch for ch in hex_str if ch not in " \t:,-")
+        try:
+            code = bytes.fromhex(c)
+        except ValueError:
+            return {"error": "hex 格式不对"}
+    elif src:
+        import os
+        if not os.path.isfile(src):
+            return {"error": "文件不存在: %s" % src}
+        try:
+            with open(src, "rb") as f:
+                f.seek(int(offset or 0))
+                code = f.read(int(length or 256))
+        except Exception as e:
+            return {"error": "读取失败: %s" % e}
+    else:
+        return {"error": "需要 hex 或 so/path",
+                "usage": "hex=5F2403D5 或 so=lib.so + offset + length"}
+
+    try:
+        import capstone
+    except ImportError:
+        return {"error": "未安装 capstone（pip install capstone）",
+                "android_note": "安卓端走 JNI 桥，不依赖 Python 包"}
+
+    a = str(arch or "arm64").lower()
+    if "x86" in a:
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
+    elif a.startswith("arm") and "64" not in a:
+        md = capstone.Cs(capstone.CS_ARCH_ARM, capstone.CS_MODE_ARM)
+    else:
+        md = capstone.Cs(capstone.CS_ARCH_ARM64, capstone.CS_MODE_LITTLE_ENDIAN)
+
+    insns = []
+    try:
+        for i in md.disasm(code, int(addr or 0)):
+            insns.append({"address": hex(i.address),
+                          "mnemonic": i.mnemonic,
+                          "operands": i.op_str})
+            if count and len(insns) >= int(count):
+                break
+    except Exception as e:
+        return {"error": "反汇编失败: %s" % e}
+    return {"engine": "capstone", "arch": arch, "count": len(insns), "insns": insns}

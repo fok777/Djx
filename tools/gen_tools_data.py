@@ -69,10 +69,53 @@ ENGINE_META = {
 }
 
 
+# 参数 schema：从 tools_registry 的 SPEC 拿（形态 name, desc, props, required），
+# 用来在 UI 上生成输入表单，不再靠手填 JSON。
+try:
+    from r2b_mcp.tools_registry import SPEC
+except Exception:
+    SPEC = None
+
+_SCHEMA = {}
+if SPEC:
+    for item in SPEC:
+        try:
+            _SCHEMA[str(item[0])] = {
+                "props": item[2] if len(item) > 2 else {},
+                "required": list(item[3]) if len(item) > 3 else [],
+            }
+        except Exception:
+            pass
+
+
+def _with_params(t):
+    """工具条目 + 参数 schema，供 UI 生成输入表单。"""
+    nm = t.get("name", "")
+    d = {"name": nm, "desc": t.get("description", "")}
+    meta = _SCHEMA.get(nm)
+    if meta:
+        props = meta.get("props") or {}
+        req = meta.get("required") or []
+        params = []
+        for k, v in props.items():
+            if not isinstance(v, dict):
+                continue
+            params.append({
+                "name": k,
+                "type": v.get("type", "string"),
+                "desc": v.get("description", ""),
+                "required": k in req,
+            })
+        if params:
+            d["params"] = params
+    return d
+
+
+from r2b_mcp.categories import category_of, CATEGORIES
+
+
 def main():
     from r2b_mcp.tools_registry import build_tools
-    from r2b_mcp.categories import category_of, CATEGORIES
-
     tools = build_tools()
 
     # 按大类聚合
@@ -99,7 +142,7 @@ def main():
             "flow": flow,
             "limit": limit,
             "count": len(items),
-            "tools": [{"name": t["name"], "desc": t["description"]} for t in items],
+            "tools": [_with_params(t) for t in items],
         })
 
     data = {"tool_total": len(tools), "engines": engines}

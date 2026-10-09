@@ -439,6 +439,8 @@ SPEC: List[tuple] = [
 
     ("Engine_R2_Deps", "检查 radare2 的 libr_*.so 是否齐全(bridge 依赖 libr_core.so)。", {"dir_hint": OPT}, []),
 
+    ("Capstone_Disasm", "Capstone 独立反汇编：直接对裸字节或文件偏移反汇编，不用先建 r2 会话。参数 hex=<十六进制> 或 so=<文件>+offset+length，arch=arm64|arm|x86。", {"hex": OPT, "so": OPT, "path": OPT, "file": OPT, "offset": OPT, "length": OPT, "size": OPT, "addr": OPT, "address": OPT, "arch": OPT, "count": OPT, "limit": OPT}, []),
+
     ("Frida_Channel", "Frida 双通道：status探测(gadget/server双通道就绪情况) / start拉起frida-server / script生成hook脚本 / gadget_config生成gadget配置。", {"action": OPT, "module": OPT, "addr": OPT, "offset": OPT, "tag": OPT, "script": OPT, "script_path": OPT}, []),
     ("Patch_Session", "补丁编辑会话：list / open开会话快照 / commit提交版本 / undo / redo / rollback回初版 / apply写回 / audit查看历史。", {"action": OPT, "session": OPT, "session_id": OPT, "id": OPT, "target": OPT, "path": OPT, "file": OPT, "so": OPT, "note": OPT}, []),
 

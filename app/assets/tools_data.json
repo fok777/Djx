@@ -1,5 +1,5 @@
 {
- "tool_total": 375,
+ "tool_total": 379,
  "engines": [
   {
    "name": "Radare2",
@@ -16,123 +16,579 @@
    "tools": [
     {
      "name": "R2_Alias",
-     "desc": "定义别名/表达式(?)。"
+     "desc": "定义别名/表达式(?)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "expr",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Analysis_Hints",
-     "desc": "管理分析提示(ah系列)：覆盖架构/位数/跳转。"
+     "desc": "管理分析提示(ah系列)：覆盖架构/位数/跳转。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "action",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "arch",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "bits",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "target",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Analyze",
-     "desc": "对已打开二进制执行自动分析(aa快/aaa深)。"
+     "desc": "对已打开二进制执行自动分析(aa快/aaa深)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "mode",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Analyze_File",
-     "desc": "快速通道:开文件→aa分析→列函数→关闭。"
+     "desc": "快速通道:开文件→aa分析→列函数→关闭。",
+     "params": [
+      {
+       "name": "file_path",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Analyze_Target",
-     "desc": "按策略局部递归分析(basic/blocks/calls/refs/pointers/full)。"
+     "desc": "按策略局部递归分析(basic/blocks/calls/refs/pointers/full)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "strategy",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Arch",
-     "desc": "架构信息(arch/bits/endian/cpu/canary/nx)。"
+     "desc": "架构信息(arch/bits/endian/cpu/canary/nx)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Blocks",
-     "desc": "基本块列表(afbj)，看控制流。"
+     "desc": "基本块列表(afbj)，看控制流。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "func",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Bytes_Read",
-     "desc": "读指定地址字节(十六进制+ASCII)。"
+     "desc": "读指定地址字节(十六进制+ASCII)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "size",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Bytes_Write",
-     "desc": "写指定地址字节(wx 内存字节序)。"
+     "desc": "写指定地址字节(wx 内存字节序)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "hex_bytes",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Calculate",
-     "desc": "计算表达式/地址运算(支持十六进制)。"
+     "desc": "计算表达式/地址运算(支持十六进制)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "expression",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Close",
-     "desc": "关闭r2会话并释放资源(含伪C缓存)。"
+     "desc": "关闭r2会话并释放资源(含伪C缓存)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Cmd",
-     "desc": "执行任意r2命令。afl/af/pd/iz/axt/wao nop/CC/afn 等。"
+     "desc": "执行任意r2命令。afl/af/pd/iz/axt/wao nop/CC/afn 等。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "command",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "timeout",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Config_Manager",
-     "desc": "读写r2运行期配置(e命令)。"
+     "desc": "读写r2运行期配置(e命令)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "key",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "value",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Debugger",
-     "desc": "调试器命令(d，断点/单步/寄存器)。"
+     "desc": "调试器命令(d，断点/单步/寄存器)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "command",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Decompile_Function",
-     "desc": "实时反编译(r2ghidra pdg更准/缓存未命中备选)。"
+     "desc": "实时反编译(r2ghidra pdg更准/缓存未命中备选)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "engine",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Diff",
-     "desc": "二进制 diff(r2diff 对比两 so)。"
+     "desc": "二进制 diff(r2diff 对比两 so)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "other_path",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Disassemble",
-     "desc": "反汇编指定地址机器码。"
+     "desc": "反汇编指定地址机器码。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "count",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Entries",
-     "desc": "列出入口点。"
+     "desc": "列出入口点。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Export_PseudoC_To_File",
-     "desc": "将全量伪C导出到文件。"
+     "desc": "将全量伪C导出到文件。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Exports",
-     "desc": "列出导出符号(其他模块可调，.so即JNI导出)。"
+     "desc": "列出导出符号(其他模块可调，.so即JNI导出)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Format_Parse",
-     "desc": "C结构体定义解析布局。"
+     "desc": "C结构体定义解析布局。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "c_struct",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Functions",
-     "desc": "列出所有函数(从内存索引秒回)。"
+     "desc": "列出所有函数(从内存索引秒回)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "keyword",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Get_PseudoC",
-     "desc": "【首选】从预编译缓存取函数伪C，毫秒级。"
+     "desc": "【首选】从预编译缓存取函数伪C，毫秒级。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Globals",
-     "desc": "全局变量(数据符号)。"
+     "desc": "全局变量(数据符号)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Goto",
-     "desc": "seek 到标签/地址(s)。"
+     "desc": "seek 到标签/地址(s)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "target",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Hash",
-     "desc": "计算文件哈希(md5/sha1/sha256)。"
+     "desc": "计算文件哈希(md5/sha1/sha256)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "type",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Hexdump",
-     "desc": "十六进制+ASCII查看指定地址内存。"
+     "desc": "十六进制+ASCII查看指定地址内存。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "count",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Imports",
-     "desc": "列出导入的外部函数(动态链接符号)。"
+     "desc": "列出导入的外部函数(动态链接符号)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Info",
-     "desc": "查看二进制元信息(架构/端序/入口/大小)。"
+     "desc": "查看二进制元信息(架构/端序/入口/大小)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Leak",
-     "desc": "内存泄漏分析(ae)。"
+     "desc": "内存泄漏分析(ae)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_List_Sessions",
@@ -140,239 +596,921 @@
     },
     {
      "name": "R2_Locate_Activated",
-     "desc": "定位 activated 激活态。"
+     "desc": "定位 activated 激活态。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Ammo",
-     "desc": "定位 ammo 弹药偏移。"
+     "desc": "定位 ammo 弹药偏移。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Auth",
-     "desc": "定位 auth 鉴权。"
+     "desc": "定位 auth 鉴权。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Buy",
-     "desc": "定位 buy 购买逻辑。"
+     "desc": "定位 buy 购买逻辑。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Bypass",
-     "desc": "定位 bypass 绕过点。"
+     "desc": "定位 bypass 绕过点。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Coin",
-     "desc": "定位 coin 金币/货币偏移。"
+     "desc": "定位 coin 金币/货币偏移。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Damage",
-     "desc": "定位 damage 伤害逻辑。"
+     "desc": "定位 damage 伤害逻辑。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Debug",
-     "desc": "定位 debug 调试开关。"
+     "desc": "定位 debug 调试开关。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Experience",
-     "desc": "定位 experience/xp 经验。"
+     "desc": "定位 experience/xp 经验。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Expire",
-     "desc": "定位 expire 过期/有效期。"
+     "desc": "定位 expire 过期/有效期。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Flag",
-     "desc": "定位 feature flag。"
+     "desc": "定位 feature flag。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Gold",
-     "desc": "定位 gold 金币。"
+     "desc": "定位 gold 金币。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Health",
-     "desc": "定位 health 血量偏移。"
+     "desc": "定位 health 血量偏移。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_HideAd",
-     "desc": "定位 hideAd 隐藏广告。"
+     "desc": "定位 hideAd 隐藏广告。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_IsMember",
-     "desc": "定位 isMember 判断。"
+     "desc": "定位 isMember 判断。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_IsVip",
-     "desc": "定位 isVip 判断函数。"
+     "desc": "定位 isVip 判断函数。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_License",
-     "desc": "定位 license 授权。"
+     "desc": "定位 license 授权。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_LoadAd",
-     "desc": "定位 loadAd 广告加载偏移。"
+     "desc": "定位 loadAd 广告加载偏移。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Member",
-     "desc": "定位 member 相关偏移。"
+     "desc": "定位 member 相关偏移。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Pay",
-     "desc": "定位 pay 支付逻辑。"
+     "desc": "定位 pay 支付逻辑。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Premium",
-     "desc": "定位 premium 权益相关。"
+     "desc": "定位 premium 权益相关。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Price",
-     "desc": "定位 price 价格/支付。"
+     "desc": "定位 price 价格/支付。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Prod",
-     "desc": "定位 prod 生产环境开关。"
+     "desc": "定位 prod 生产环境开关。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Purchase",
-     "desc": "定位 purchase 购买。"
+     "desc": "定位 purchase 购买。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Rate",
-     "desc": "定位 rate 倍率/概率。"
+     "desc": "定位 rate 倍率/概率。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Root",
-     "desc": "定位 root 检测。"
+     "desc": "定位 root 检测。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Secret",
-     "desc": "定位 secret 密钥。"
+     "desc": "定位 secret 密钥。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Serial",
-     "desc": "定位 serial 序列号。"
+     "desc": "定位 serial 序列号。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_ShowAd",
-     "desc": "定位 showAd 展示广告。"
+     "desc": "定位 showAd 展示广告。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Subscribe",
-     "desc": "定位 subscribe 订阅逻辑。"
+     "desc": "定位 subscribe 订阅逻辑。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Test",
-     "desc": "定位 test 测试桩。"
+     "desc": "定位 test 测试桩。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Token",
-     "desc": "定位 token 令牌。"
+     "desc": "定位 token 令牌。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Trial",
-     "desc": "定位 trial 试用逻辑。"
+     "desc": "定位 trial 试用逻辑。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Unlock",
-     "desc": "定位 unlock 解锁逻辑。"
+     "desc": "定位 unlock 解锁逻辑。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Verify",
-     "desc": "定位 verify 校验点。"
+     "desc": "定位 verify 校验点。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Locate_Vip",
-     "desc": "定位 vip 相关偏移(搜串+伪C命中)。"
+     "desc": "定位 vip 相关偏移(搜串+伪C命中)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Macros",
-     "desc": "脚本宏管理(. / ())。"
+     "desc": "脚本宏管理(. / ())。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "name",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "body",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Manage_Xrefs",
-     "desc": "管理/查询/创建交叉引用(ax系列)。"
+     "desc": "管理/查询/创建交叉引用(ax系列)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "action",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "target_address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "source_address",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Map",
-     "desc": "内存映射(om)。"
+     "desc": "内存映射(om)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Open",
-     "desc": "打开二进制(.so/.dex/.elf)建r2会话，自动建函数索引+后台全量伪C导出(≤5000内存/>5000 SQLite)。返回8位session_id。"
+     "desc": "打开二进制(.so/.dex/.elf)建r2会话，自动建函数索引+后台全量伪C导出(≤5000内存/>5000 SQLite)。返回8位session_id。",
+     "params": [
+      {
+       "name": "so_path",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "mode",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Panel_Hint",
-     "desc": "radare2 面板/图形模式提示(需GUI)。"
+     "desc": "radare2 面板/图形模式提示(需GUI)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Patch",
-     "desc": "打补丁：写 hex / 写汇编 / 填 NOP(三选一)。"
+     "desc": "打补丁：写 hex / 写汇编 / 填 NOP(三选一)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "hex_bytes",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "asm",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "nop",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_PseudoC_Status",
-     "desc": "查看后台全量伪C导出进度。"
+     "desc": "查看后台全量伪C导出进度。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Reload",
-     "desc": "重载 so 重新分析(o -r)。"
+     "desc": "重载 so 重新分析(o -r)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Sdb_Query",
-     "desc": "sdb-query(k，查类型/结构数据库)。"
+     "desc": "sdb-query(k，查类型/结构数据库)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "query",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Search",
-     "desc": "搜十六进制字节模式(机器码/magic，非字符串)。"
+     "desc": "搜十六进制字节模式(机器码/magic，非字符串)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "pattern",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "threads",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Search_Functions",
-     "desc": "按函数名模糊搜索定位，返回地址+大小+名字。"
+     "desc": "按函数名模糊搜索定位，返回地址+大小+名字。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "query",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Search_PseudoC",
-     "desc": "在全量伪C中搜关键词/正则，返回地址+函数名+片段。"
+     "desc": "在全量伪C中搜关键词/正则，返回地址+函数名+片段。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "query",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "regex",
+       "type": "boolean",
+       "desc": "",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Search_String",
-     "desc": "按关键词搜可读字符串(多线程快，AI优先用此而非R2_Search)。"
+     "desc": "按关键词搜可读字符串(多线程快，AI优先用此而非R2_Search)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "query",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Sections",
-     "desc": "列出ELF段(Section)信息。"
+     "desc": "列出ELF段(Section)信息。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Seek",
-     "desc": "移动光标到指定地址。"
+     "desc": "移动光标到指定地址。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Shellcode",
-     "desc": "g生成shellcode(r_egg)。"
+     "desc": "g生成shellcode(r_egg)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "egg",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Signatures",
-     "desc": "C函数签名/类型(iS)。"
+     "desc": "C函数签名/类型(iS)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "name",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Strings",
-     "desc": "提取可打印字符串。iz快/izz全文件。"
+     "desc": "提取可打印字符串。iz快/izz全文件。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "mode",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "timeout",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Structs",
-     "desc": "结构体/类型解析(t)。"
+     "desc": "结构体/类型解析(t)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "name",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Symbols",
-     "desc": "符号总表(可按类型过滤)。"
+     "desc": "符号总表(可按类型过滤)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "kind",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Text_Log",
-     "desc": "Text log(T，注释/日志/同步)。"
+     "desc": "Text log(T，注释/日志/同步)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "action",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "text",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_To_Ub_Call",
-     "desc": "【R2→Unidbg桥】从r2会话取函数偏移→unidbg调用。"
+     "desc": "【R2→Unidbg桥】从r2会话取函数偏移→unidbg调用。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "offset",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "args",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Types",
-     "desc": "类型与结构体定义。"
+     "desc": "类型与结构体定义。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Version",
@@ -380,15 +1518,69 @@
     },
     {
      "name": "R2_Xrefs",
-     "desc": "查找谁调用指定地址的函数(需先R2_Analyze)。"
+     "desc": "查找谁调用指定地址的函数(需先R2_Analyze)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "R2_Yank",
-     "desc": "yank/paste 内存块(y)。"
+     "desc": "yank/paste 内存块(y)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "action",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": false
+      },
+      {
+       "name": "size",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "R2_Zignatures",
-     "desc": "管理 zignatures(z，函数指纹)。"
+     "desc": "管理 zignatures(z，函数指纹)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     }
    ]
   },
@@ -407,35 +1599,123 @@
    "tools": [
     {
      "name": "Fr_Activity",
-     "desc": "追踪Activity生命周期。"
+     "desc": "追踪Activity生命周期。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Apps",
-     "desc": "列出第三方应用(包名+APK路径)。"
+     "desc": "列出第三方应用(包名+APK路径)。",
+     "params": [
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Attach",
-     "desc": "【附加模式】附加到已运行进程建r2frida会话。"
+     "desc": "【附加模式】附加到已运行进程建r2frida会话。",
+     "params": [
+      {
+       "name": "target",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "timeout_ms",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Classes",
-     "desc": "列出目标进程加载的Java类。"
+     "desc": "列出目标进程加载的Java类。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Close",
-     "desc": "关闭指定Frida会话。"
+     "desc": "关闭指定Frida会话。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Cmd",
-     "desc": "在Frida会话执行r2frida命令(须:开头)。"
+     "desc": "在Frida会话执行r2frida命令(须:开头)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "command",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Crash",
-     "desc": "捕获崩溃/信号+调用栈。"
+     "desc": "捕获崩溃/信号+调用栈。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Detach",
-     "desc": "断开Frida会话释放资源。"
+     "desc": "断开Frida会话释放资源。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Detect",
@@ -443,67 +1723,345 @@
     },
     {
      "name": "Fr_Discover",
-     "desc": "【热点发现】Stalker采样统计函数调用次数。"
+     "desc": "【热点发现】Stalker采样统计函数调用次数。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "duration_ms",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Dump_Memory",
-     "desc": "【桥·内存→文件】目标进程模块内存dump到文件供R2离线分析。"
+     "desc": "【桥·内存→文件】目标进程模块内存dump到文件供R2离线分析。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "module_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "output_path",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Enumerate_Export",
-     "desc": "枚举模块导出函数(含地址，可直接 hook)。"
+     "desc": "枚举模块导出函数(含地址，可直接 hook)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "module_name",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Env_Override",
-     "desc": "覆盖SystemProperties/环境变量。"
+     "desc": "覆盖SystemProperties/环境变量。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "key",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "value",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Eval",
-     "desc": "【终极】在Frida会话执行任意JS。"
+     "desc": "【终极】在Frida会话执行任意JS。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "js_code",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Eval_Java",
-     "desc": "执行一段 Java 层 JS 代码(Java.perform 内)。"
+     "desc": "执行一段 Java 层 JS 代码(Java.perform 内)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "code",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "wrap_perform",
+       "type": "boolean",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Exports",
-     "desc": "列出某模块导出函数。"
+     "desc": "列出某模块导出函数。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Find_Callers",
-     "desc": "【探路·反混淆】Hook系统函数抓调用方地址+调用栈。"
+     "desc": "【探路·反混淆】Hook系统函数抓调用方地址+调用栈。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "func_export",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "caller_module",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "module_hint",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Follow_Thread",
-     "desc": "Stalker跟指定线程。"
+     "desc": "Stalker跟指定线程。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "thread_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Gadget",
-     "desc": "Frida Gadget 免 root 方案(打进 APK 的操作步骤)。"
+     "desc": "Frida Gadget 免 root 方案(打进 APK 的操作步骤)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "mode",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "package",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Heap_Scan",
-     "desc": "扫堆内存找字符串/字节模式。"
+     "desc": "扫堆内存找字符串/字节模式。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "pattern",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Info",
-     "desc": "查看Frida会话详情。"
+     "desc": "查看Frida会话详情。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Java_Call",
-     "desc": "调用指定Java方法并取返回。"
+     "desc": "调用指定Java方法并取返回。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "method",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "args",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Keyboard",
-     "desc": "模拟键盘输入。"
+     "desc": "模拟键盘输入。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "text",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Kill",
-     "desc": "杀进程(PID或包名)。"
+     "desc": "杀进程(PID或包名)。",
+     "params": [
+      {
+       "name": "target",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Libraries",
-     "desc": "列出目标进程加载的动态库。"
+     "desc": "列出目标进程加载的动态库。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_List_Sessions",
@@ -511,95 +2069,477 @@
     },
     {
      "name": "Fr_LoadScript",
-     "desc": "从本地文件加载JS脚本到Frida会话。"
+     "desc": "从本地文件加载JS脚本到Frida会话。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "script_path",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Ls",
-     "desc": "列出目标设备文件/目录。"
+     "desc": "列出目标设备文件/目录。",
+     "params": [
+      {
+       "name": "path",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Malloc_Hook",
-     "desc": "hook malloc/free追踪内存分配。"
+     "desc": "hook malloc/free追踪内存分配。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Method_Overloads",
-     "desc": "枚举Java方法全部重载。"
+     "desc": "枚举Java方法全部重载。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "method",
+       "type": "string",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Native_Hook",
-     "desc": "【探路·主力】Interceptor.attach拦native函数0行手写JS。"
+     "desc": "【探路·主力】Interceptor.attach拦native函数0行手写JS。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "func_offset",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "module_name",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "hook_type",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "capture_caller",
+       "type": "boolean",
+       "desc": "",
+       "required": false
+      },
+      {
+       "name": "caller_module",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Network",
-     "desc": "过滤/追踪网络请求(host)。"
+     "desc": "过滤/追踪网络请求(host)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "host",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Overload",
-     "desc": "枚举方法所有重载并逐个 hook(Java 重载必用)。"
+     "desc": "枚举方法所有重载并逐个 hook(Java 重载必用)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "method",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "dump_args",
+       "type": "boolean",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Patch_Bytes",
-     "desc": "改进程内存(运行时 patch，重启失效)。"
+     "desc": "改进程内存(运行时 patch，重启失效)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "hex_bytes",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "restore",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Prop",
-     "desc": "设系统属性(SystemProperties)。"
+     "desc": "设系统属性(SystemProperties)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "key",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "value",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Ps",
-     "desc": "列出设备运行进程(类frida-ps)。"
+     "desc": "列出设备运行进程(类frida-ps)。",
+     "params": [
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Pull",
-     "desc": "从设备远程路径复制到本地。"
+     "desc": "从设备远程路径复制到本地。",
+     "params": [
+      {
+       "name": "remote_path",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "local_path",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Push",
-     "desc": "从本地推送到设备远程路径。"
+     "desc": "从本地推送到设备远程路径。",
+     "params": [
+      {
+       "name": "local_path",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "remote_path",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Read_Bytes",
-     "desc": "读进程内存。"
+     "desc": "读进程内存。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "size",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Read_Messages",
-     "desc": "【收数据】收取Frida hook send()上报的异步数据。"
+     "desc": "【收数据】收取Frida hook send()上报的异步数据。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Rm",
-     "desc": "删除目标设备文件/目录。"
+     "desc": "删除目标设备文件/目录。",
+     "params": [
+      {
+       "name": "path",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "recursive",
+       "type": "boolean",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Root_Detect_Bypass",
-     "desc": "【破防】绕过Root检测。"
+     "desc": "【破防】绕过Root检测。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_SSL_Pinning_Disable",
-     "desc": "【破防】绕过SSL Pinning校验。"
+     "desc": "【破防】绕过SSL Pinning校验。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_SSL_Upgrade",
-     "desc": "hook SSL_read/write抓HTTPS明文。"
+     "desc": "hook SSL_read/write抓HTTPS明文。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Search",
-     "desc": "在目标进程内存中搜十六进制模式。"
+     "desc": "在目标进程内存中搜十六进制模式。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "value",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "type",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "protection",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "range_min",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "range_max",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Service",
-     "desc": "追踪Service。"
+     "desc": "追踪Service。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Signal_Hook",
-     "desc": "hook信号处理器。"
+     "desc": "hook信号处理器。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "signal",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Fr_Spawn",
-     "desc": "【启动模式】冷启动App并在入口点前注入Frida。"
+     "desc": "【启动模式】冷启动App并在入口点前注入Frida。",
+     "params": [
+      {
+       "name": "app",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "timeout_ms",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_StackTrace",
-     "desc": "抓调用栈(native Thread.backtrace / Java Exception 栈)。"
+     "desc": "抓调用栈(native Thread.backtrace / Java Exception 栈)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "depth",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Start_Server",
@@ -611,19 +2551,105 @@
     },
     {
      "name": "Fr_Strings",
-     "desc": "搜目标进程内存中的字符串。"
+     "desc": "搜目标进程内存中的字符串。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_To_R2",
-     "desc": "【桥·Frida→R2】运行时地址→文件偏移→开R2并seek。"
+     "desc": "【桥·Frida→R2】运行时地址→文件偏移→开R2并seek。",
+     "params": [
+      {
+       "name": "frida_session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "blutter_session_id",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Trace",
-     "desc": "【精确跟踪】跟踪指定函数每次调用记录参数/返回。"
+     "desc": "【精确跟踪】跟踪指定函数每次调用记录参数/返回。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "target",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "duration_ms",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Fr_Watch_Class",
-     "desc": "【便利】一键Hook Java类所有方法。"
+     "desc": "【便利】一键Hook Java类所有方法。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "dump_args",
+       "type": "boolean",
+       "desc": "",
+       "required": false
+      },
+      {
+       "name": "dump_ret",
+       "type": "boolean",
+       "desc": "",
+       "required": false
+      },
+      {
+       "name": "dump_bt",
+       "type": "boolean",
+       "desc": "",
+       "required": false
+      }
+     ]
     }
    ]
   },
@@ -646,135 +2672,693 @@
     },
     {
      "name": "Blutter_Analyze",
-     "desc": "对Flutter的libapp.so做Dart快照分析(3-5秒)，缓存类/函数/字符串。"
+     "desc": "对Flutter的libapp.so做Dart快照分析(3-5秒)，缓存类/函数/字符串。",
+     "params": [
+      {
+       "name": "lib_app_path",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "lib_flutter_path",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "timeout_seconds",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Annotate",
-     "desc": "批量生成 r2 注释脚本(afn/CC)，把 Dart 符号写回反汇编。"
+     "desc": "批量生成 r2 注释脚本(afn/CC)，把 Dart 符号写回反汇编。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Annotate_R2",
-     "desc": "【Blutter→r2集成】IR字段偏移+pp字符串注入r2注释。"
+     "desc": "【Blutter→r2集成】IR字段偏移+pp字符串注入r2注释。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "function_filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "annotate_pp",
+       "type": "boolean",
+       "desc": "",
+       "required": false
+      },
+      {
+       "name": "pp_filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Asset_Icons",
-     "desc": "列flutter_assets资源/图标。"
+     "desc": "列flutter_assets资源/图标。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Async",
-     "desc": "异步相关符号(Future/Stream/await/Isolate)。"
+     "desc": "异步相关符号(Future/Stream/await/Isolate)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Channel",
-     "desc": "Platform Channel 符号(MethodChannel/EventChannel)。"
+     "desc": "Platform Channel 符号(MethodChannel/EventChannel)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Class_Detail",
-     "desc": "查看指定Dart类完整结构(继承/字段/方法)。"
+     "desc": "查看指定Dart类完整结构(继承/字段/方法)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Class_Methods",
-     "desc": "类完整方法签名+字段。"
+     "desc": "类完整方法签名+字段。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Classes",
-     "desc": "从内存缓存搜Dart类列表(毫秒级)。"
+     "desc": "从内存缓存搜Dart类列表(毫秒级)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Close",
-     "desc": "关闭Blutter分析会话释放内存。"
+     "desc": "关闭Blutter分析会话释放内存。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Closure",
-     "desc": "闭包相关符号。"
+     "desc": "闭包相关符号。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Const",
-     "desc": "常量符号(k 前缀 / _ 大写)。"
+     "desc": "常量符号(k 前缀 / _ 大写)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Dart_Access",
-     "desc": "【桥·运行时读写】objs.txt字段偏移→Frida读写字段。"
+     "desc": "【桥·运行时读写】objs.txt字段偏移→Frida读写字段。",
+     "params": [
+      {
+       "name": "blutter_session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "frida_session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "action",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "field_name",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "instance_addr",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "new_value",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Decode_Base64",
-     "desc": "解码Dart快照里的base64字符串。"
+     "desc": "解码Dart快照里的base64字符串。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "limit",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Decode_UTF16",
-     "desc": "Dart字符串utf-16le全表解码。"
+     "desc": "Dart字符串utf-16le全表解码。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "limit",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Disassemble",
-     "desc": "查看Dart函数完整汇编(Butter Dart IR)。"
+     "desc": "查看Dart函数完整汇编(Butter Dart IR)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "function_name",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "open_r2",
+       "type": "boolean",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Enum",
-     "desc": "枚举类型与全大写成员。"
+     "desc": "枚举类型与全大写成员。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Exception_Sites",
-     "desc": "定位异常/错误/throw字符串。"
+     "desc": "定位异常/错误/throw字符串。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Extension",
-     "desc": "Dart extension 扩展符号。"
+     "desc": "Dart extension 扩展符号。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Fields",
-     "desc": "类字段列表(Class.field 命名推断)。"
+     "desc": "类字段列表(Class.field 命名推断)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Find_Instances",
-     "desc": "【桥·实例→字段】Hook类方法入口捕this指针。"
+     "desc": "【桥·实例→字段】Hook类方法入口捕this指针。",
+     "params": [
+      {
+       "name": "blutter_session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "frida_session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "method_name",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "module_hint",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Frida",
-     "desc": "导出Frida Hook脚本(所有Dart函数Interceptor桩)。"
+     "desc": "导出Frida Hook脚本(所有Dart函数Interceptor桩)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Functions",
-     "desc": "搜索所有Dart函数(毫秒级，内存缓存)。"
+     "desc": "搜索所有Dart函数(毫秒级，内存缓存)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_GC",
-     "desc": "GC/堆相关符号。"
+     "desc": "GC/堆相关符号。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Heap",
-     "desc": "堆分配相关符号(同 GC 扫描)。"
+     "desc": "堆分配相关符号(同 GC 扫描)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Heap_Dump",
-     "desc": "Dart对象布局dump(objs近似)。"
+     "desc": "Dart对象布局dump(objs近似)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Implement",
-     "desc": "类实现了哪些方法(按 Class. 前缀聚合)。"
+     "desc": "类实现了哪些方法(按 Class. 前缀聚合)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Imports",
-     "desc": "import 依赖字符串(package:/dart:/flutter:)。"
+     "desc": "import 依赖字符串(package:/dart:/flutter:)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Info",
-     "desc": "查看Blutter会话统计(Dart版本/类数/函数数/字符串数)。"
+     "desc": "查看Blutter会话统计(Dart版本/类数/函数数/字符串数)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Inherits",
-     "desc": "类的继承链(父→祖父)。"
+     "desc": "类的继承链(父→祖父)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Inspect",
-     "desc": "给一个名字自动判断是类/方法/字段/字符串并出详情。"
+     "desc": "给一个名字自动判断是类/方法/字段/字符串并出详情。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "target",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Isolate",
-     "desc": "Isolate 并发符号(spawn/SendPort/ReceivePort)。"
+     "desc": "Isolate 并发符号(spawn/SendPort/ReceivePort)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Lib",
-     "desc": "native 库引用(.so 名)。"
+     "desc": "native 库引用(.so 名)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_List_Sessions",
@@ -782,127 +3366,633 @@
     },
     {
      "name": "Blutter_Localizations",
-     "desc": "本地化/多语言资源符号。"
+     "desc": "本地化/多语言资源符号。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Logs",
-     "desc": "查看Blutter_Analyze执行日志。"
+     "desc": "查看Blutter_Analyze执行日志。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Method_Detail",
-     "desc": "单方法详情(偏移/大小/所属类/可用 Frida 片段)。"
+     "desc": "单方法详情(偏移/大小/所属类/可用 Frida 片段)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "method",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Methods",
-     "desc": "类方法列表(含偏移，可直接给 Fr_Native_Hook)。"
+     "desc": "类方法列表(含偏移，可直接给 Fr_Native_Hook)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Mirror",
-     "desc": "dart:mirrors 反射相关符号。"
+     "desc": "dart:mirrors 反射相关符号。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Mixin",
-     "desc": "mixin 混入符号(Mixin 后缀)。"
+     "desc": "mixin 混入符号(Mixin 后缀)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Modify_String",
-     "desc": "修改libapp.so中字符串常量(不能比原串长)。"
+     "desc": "修改libapp.so中字符串常量(不能比原串长)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "search_str",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "replace_str",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Network_Urls",
-     "desc": "提取所有http/https URL。"
+     "desc": "提取所有http/https URL。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Object_Layouts",
-     "desc": "读objs.txt对象布局表(字段偏移/类型继承/大小)。"
+     "desc": "读objs.txt对象布局表(字段偏移/类型继承/大小)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_PP_Table",
-     "desc": "读pp.txt池化对象表(类/函数/字符串在libapp.so的精确偏移)。"
+     "desc": "读pp.txt池化对象表(类/函数/字符串在libapp.so的精确偏移)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Package",
-     "desc": "依赖包聚合清单(package:/dart:)。"
+     "desc": "依赖包聚合清单(package:/dart:)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Patch",
-     "desc": "在native层修改Dart函数(ret/nop/custom)。"
+     "desc": "在native层修改Dart函数(ret/nop/custom)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "function_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "action",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "bytes",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Plugin",
-     "desc": "Flutter 插件注册点(Plugin/registerWith)。"
+     "desc": "Flutter 插件注册点(Plugin/registerWith)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Resolve",
-     "desc": "地址→符号反查(pp_table + 最近函数)。"
+     "desc": "地址→符号反查(pp_table + 最近函数)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Resources",
-     "desc": "解析flutter_assets资源清单(AssetManifest/FontManifest)。"
+     "desc": "解析flutter_assets资源清单(AssetManifest/FontManifest)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Route_Map",
-     "desc": "提取Flutter路由(Page/Screen/Route类)。"
+     "desc": "提取Flutter路由(Page/Screen/Route类)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Routes",
-     "desc": "路由表(/xxx 路径 + Navigator 调用点)。"
+     "desc": "路由表(/xxx 路径 + Navigator 调用点)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Search",
-     "desc": "跨类/函数/字符串统一搜索。"
+     "desc": "跨类/函数/字符串统一搜索。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "query",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "kind",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Snapshot",
-     "desc": "AOT 快照元信息(版本/段大小/各类计数)。"
+     "desc": "AOT 快照元信息(版本/段大小/各类计数)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_StackTrace",
-     "desc": "异常/堆栈相关符号(定位崩溃点与 try-catch)。"
+     "desc": "异常/堆栈相关符号(定位崩溃点与 try-catch)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Strings",
-     "desc": "搜Dart快照中的字符串常量(毫秒级)。"
+     "desc": "搜Dart快照中的字符串常量(毫秒级)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Superclass",
-     "desc": "类的直接父类。"
+     "desc": "类的直接父类。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Symbols",
-     "desc": "全部符号(类+函数+字符串)，可按 kind 过滤。"
+     "desc": "全部符号(类+函数+字符串)，可按 kind 过滤。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "kind",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_To_Frida_Hook",
-     "desc": "【Blutter→Frida桥】Blutter偏移→运行时地址→注入Hook。"
+     "desc": "【Blutter→Frida桥】Blutter偏移→运行时地址→注入Hook。",
+     "params": [
+      {
+       "name": "blutter_session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "frida_session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "function_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "hook_type",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "replace_value",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "module_hint",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_To_R2",
-     "desc": "【Blutter→r2桥】跳r2并seek到指定函数偏移。"
+     "desc": "【Blutter→r2桥】跳r2并seek到指定函数偏移。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "function_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_To_Unidbg_Call",
-     "desc": "【Blutter→Unidbg桥】取Dart函数偏移→unidbg调用。"
+     "desc": "【Blutter→Unidbg桥】取Dart函数偏移→unidbg调用。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "function_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "args",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_TypeArgs",
-     "desc": "泛型参数符号(<T> 形式)。"
+     "desc": "泛型参数符号(<T> 形式)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_VM_Cmd",
-     "desc": "Dart VM命令透传(需真实Blutter引擎)。"
+     "desc": "Dart VM命令透传(需真实Blutter引擎)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "cmd",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Version_Adapt",
-     "desc": "Dart 版本适配：报告版本并给出解析策略。"
+     "desc": "Dart 版本适配：报告版本并给出解析策略。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Blutter_Widget_Tree",
-     "desc": "识别Flutter Widget/State/Element类。"
+     "desc": "识别Flutter Widget/State/Element类。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Blutter_Widgets",
-     "desc": "Widget/Page/View/Screen 组件符号。"
+     "desc": "Widget/Page/View/Screen 组件符号。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     }
    ]
   },
@@ -921,83 +4011,375 @@
    "tools": [
     {
      "name": "Il2Cpp_AntiCheat_Scan",
-     "desc": "校验/反作弊/完整性点(verify/sign/license/root/debug)。"
+     "desc": "校验/反作弊/完整性点(verify/sign/license/root/debug)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "keywords",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Assemblies",
-     "desc": "程序集/模块前缀统计。"
+     "desc": "程序集/模块前缀统计。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Cheatable_Scan",
-     "desc": "可改数值关键词(血量/弹药/金币/倍率/概率/经验)。"
+     "desc": "可改数值关键词(血量/弹药/金币/倍率/概率/经验)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "keywords",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Class_Detail",
-     "desc": "指定C#类的完整方法/字段。"
+     "desc": "指定C#类的完整方法/字段。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Classes",
-     "desc": "列出所有 C# 类(可按命名空间过滤)。"
+     "desc": "列出所有 C# 类(可按命名空间过滤)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "namespace",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Close",
-     "desc": "关闭Il2Cpp会话。"
+     "desc": "关闭Il2Cpp会话。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Csharp_Source",
-     "desc": "生成C#源码骨架(类+方法签名)。"
+     "desc": "生成C#源码骨架(类+方法签名)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "out_dir",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Dummy_DLL",
-     "desc": "生成还原C#类型/方法骨架(dummy dll)。"
+     "desc": "生成还原C#类型/方法骨架(dummy dll)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "out_dir",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Dump",
-     "desc": "导出 Il2CppDumper 三件套到目录。"
+     "desc": "导出 Il2CppDumper 三件套到目录。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "out_dir",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Enums",
-     "desc": "枚举类型与成员。"
+     "desc": "枚举类型与成员。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Export",
-     "desc": "导出三件套(script.json/DummyTypes/string.json)。"
+     "desc": "导出三件套(script.json/DummyTypes/string.json)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "out_dir",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Field_Defs",
-     "desc": "字段名提取(近似,精确偏移需Il2CppDumper)。"
+     "desc": "字段名提取(近似,精确偏移需Il2CppDumper)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Fields",
-     "desc": "字段列表(字符串+getter/setter 推断，类型恒 unknown)。"
+     "desc": "字段列表(字符串+getter/setter 推断，类型恒 unknown)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Find_Field",
-     "desc": "搜字段(按名)。"
+     "desc": "搜字段(按名)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Find_Method",
-     "desc": "搜方法(按名)。"
+     "desc": "搜方法(按名)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Find_Type",
-     "desc": "搜类型(按名)。"
+     "desc": "搜类型(按名)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Gameplay_Scan",
-     "desc": "游戏逻辑关键词扫(伤害/血量/武器/命中/暴击/货币)。"
+     "desc": "游戏逻辑关键词扫(伤害/血量/武器/命中/暴击/货币)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "keywords",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Import_IDA",
-     "desc": "生成IDA import脚本(af到RVA)。"
+     "desc": "生成IDA import脚本(af到RVA)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "out_dir",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Import_R2",
-     "desc": "生成r2导入脚本(ff函数+重命名)。"
+     "desc": "生成r2导入脚本(ff函数+重命名)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "out_dir",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Interfaces",
-     "desc": "接口列表(按 I 前缀命名约定识别)。"
+     "desc": "接口列表(按 I 前缀命名约定识别)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_List_Sessions",
@@ -1005,87 +4387,387 @@
     },
     {
      "name": "Il2Cpp_Metadata_Info",
-     "desc": "Il2Cpp会话统计(版本/类型/方法/字符串数)。"
+     "desc": "Il2Cpp会话统计(版本/类型/方法/字符串数)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Metadata_Parse",
-     "desc": "global-metadata.dat完整结构(magic/blob偏移/各表数量)。"
+     "desc": "global-metadata.dat完整结构(magic/blob偏移/各表数量)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Method_Detail",
-     "desc": "指定C#方法签名+RVA状态。"
+     "desc": "指定C#方法签名+RVA状态。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "method",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Methods",
-     "desc": "列C#方法签名清单。"
+     "desc": "列C#方法签名清单。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Namespaces",
-     "desc": "命名空间统计。"
+     "desc": "命名空间统计。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Open",
-     "desc": "【第1步】打开Unity APK/global-metadata.dat建Il2Cpp会话(检测版本+提C#符号)。"
+     "desc": "【第1步】打开Unity APK/global-metadata.dat建Il2Cpp会话(检测版本+提C#符号)。",
+     "params": [
+      {
+       "name": "extract_dir",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "metadata",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "il2cpp_so",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Properties",
-     "desc": "属性列表(get_/set_ 成对识别)。"
+     "desc": "属性列表(get_/set_ 成对识别)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_RVA_Patch",
-     "desc": "C#方法/类→RVA定位+patch(需Il2CppDumper取精确RVA)。"
+     "desc": "C#方法/类→RVA定位+patch(需Il2CppDumper取精确RVA)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "method_or_class",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "new_return",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_RVA_Table",
-     "desc": "方法→RVA表(精确需Il2CppDumper)。"
+     "desc": "方法→RVA表(精确需Il2CppDumper)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Read",
-     "desc": "读 libil2cpp.so 指定地址。"
+     "desc": "读 libil2cpp.so 指定地址。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "size",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      },
+      {
+       "name": "as_type",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Script_Json",
-     "desc": "产出 Il2CppDumper 风格 script.json。"
+     "desc": "产出 Il2CppDumper 风格 script.json。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "out_dir",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Search",
-     "desc": "跨类型/方法/字符串搜索。"
+     "desc": "跨类型/方法/字符串搜索。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "query",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "kind",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_So_Scan",
-     "desc": "扫libil2cpp.so native符号。"
+     "desc": "扫libil2cpp.so native符号。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "pattern",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Strings",
-     "desc": "提C#硬编码字符串。"
+     "desc": "提C#硬编码字符串。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Struct",
-     "desc": "结构体布局(按 8 字节对齐估算偏移)。"
+     "desc": "结构体布局(按 8 字节对齐估算偏移)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Symbol_Restore",
-     "desc": "全量C#方法→可读符号清单(导入r2/IDA)。"
+     "desc": "全量C#方法→可读符号清单(导入r2/IDA)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Il2Cpp_To_R2",
-     "desc": "导出 r2 脚本(afn/CC)把 C# 符号写回反汇编。"
+     "desc": "导出 r2 脚本(afn/CC)把 C# 符号写回反汇编。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "out_dir",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Type_Defs",
-     "desc": "全量类型定义+继承启发(基类/泛型)。"
+     "desc": "全量类型定义+继承启发(基类/泛型)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Types",
-     "desc": "列C#类型清单(全局类型)。"
+     "desc": "列C#类型清单(全局类型)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Version",
-     "desc": "Unity 与 metadata 版本信息。"
+     "desc": "Unity 与 metadata 版本信息。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Il2Cpp_Version_Detect",
-     "desc": "从metadata头判Unity版本(v29=2021/v39=Unity6)。"
+     "desc": "从metadata头判Unity版本(v29=2021/v39=Unity6)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     }
    ]
   },
@@ -1104,91 +4786,477 @@
    "tools": [
     {
      "name": "Ub_Alloc",
-     "desc": "模拟器内malloc内存返回指针。"
+     "desc": "模拟器内malloc内存返回指针。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "size",
+       "type": "integer",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "init",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Backtrace",
-     "desc": "回溯当前调用栈(出 Java 源码)。"
+     "desc": "回溯当前调用栈(出 Java 源码)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "max_frames",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Call",
-     "desc": "按导出符号名调用函数(Java_自动补参数)。"
+     "desc": "按导出符号名调用函数(Java_自动补参数)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "symbol",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "args",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "trace",
+       "type": "boolean",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Call_Java",
-     "desc": "模拟Java层方法调用(JNIEnv+jobject)。"
+     "desc": "模拟Java层方法调用(JNIEnv+jobject)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "method",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "args",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Call_Offset",
-     "desc": "按模块偏移调用函数(无符号内部函数)。"
+     "desc": "按模块偏移调用函数(无符号内部函数)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "offset",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "args",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "trace",
+       "type": "boolean",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Callback_Install",
-     "desc": "安装native回调桩。"
+     "desc": "安装native回调桩。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "offset",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "js",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Close",
-     "desc": "关闭模拟会话释放资源。"
+     "desc": "关闭模拟会话释放资源。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Ub_Close_Session",
-     "desc": "关闭 Unidbg 会话并释放分配/桩。"
+     "desc": "关闭 Unidbg 会话并释放分配/桩。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Ub_Disasm",
-     "desc": "capstone反汇编模拟器内存(运行时自解密后真实代码)。"
+     "desc": "capstone反汇编模拟器内存(运行时自解密后真实代码)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "count",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Dlopen",
-     "desc": "加载额外 so 到模拟器。"
+     "desc": "加载额外 so 到模拟器。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "path",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Ub_Dump",
-     "desc": "读模拟器内存(输出缓冲区/解密结果/全局变量)。"
+     "desc": "读模拟器内存(输出缓冲区/解密结果/全局变量)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "size",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Dump_To_R2",
-     "desc": "【Unidbg→R2桥】dump内存→r2反汇编ARM64。"
+     "desc": "【Unidbg→R2桥】dump内存→r2反汇编ARM64。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Ub_Env",
-     "desc": "报告 Unidbg 运行环境是否就绪(java+jar)。"
+     "desc": "报告 Unidbg 运行环境是否就绪(java+jar)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_File_Read",
-     "desc": "读模拟器文件系统(无 jar 时降级读宿主机)。"
+     "desc": "读模拟器文件系统(无 jar 时降级读宿主机)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "path",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "max_bytes",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_File_Write",
-     "desc": "写文件到模拟器文件系统。"
+     "desc": "写文件到模拟器文件系统。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "path",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "content",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "hex_bytes",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Free",
-     "desc": "释放Ub_Alloc分配的内存。"
+     "desc": "释放Ub_Alloc分配的内存。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Ub_Hook",
-     "desc": "指定地址装执行hook，命中快照x0-x3/lr/sp。"
+     "desc": "指定地址装执行hook，命中快照x0-x3/lr/sp。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "max_hits",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Hook_Hits",
-     "desc": "读Ub_Hook命中记录，默认读后清空。"
+     "desc": "读Ub_Hook命中记录，默认读后清空。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "keep",
+       "type": "boolean",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Hook_To_R2_Xrefs",
-     "desc": "【Unidbg→R2桥】对hook返回地址查交叉引用。"
+     "desc": "【Unidbg→R2桥】对hook返回地址查交叉引用。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Ub_Info",
-     "desc": "会话或全局 Unidbg 环境信息。"
+     "desc": "会话或全局 Unidbg 环境信息。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Java_Call",
-     "desc": "在模拟器里调用 Java 层方法。"
+     "desc": "在模拟器里调用 Java 层方法。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "method",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "args",
+       "type": "object",
+       "desc": "",
+       "required": false
+      },
+      {
+       "name": "signature",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Jni_Callback",
-     "desc": "JNI回调桩。"
+     "desc": "JNI回调桩。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "symbol",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "js",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_List_Sessions",
@@ -1196,79 +5264,399 @@
     },
     {
      "name": "Ub_Malloc",
-     "desc": "在模拟器堆上分配内存。"
+     "desc": "在模拟器堆上分配内存。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "size",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      },
+      {
+       "name": "init",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Modules",
-     "desc": "列出模拟器已加载模块及基址。"
+     "desc": "列出模拟器已加载模块及基址。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Ub_MultiCall",
-     "desc": "多函数顺序调用链。"
+     "desc": "多函数顺序调用链。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "calls",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Ub_Open",
-     "desc": "【Unidbg·第1步】加载so到模拟器并创建会话，执行JNI_OnLoad/init_array。"
+     "desc": "【Unidbg·第1步】加载so到模拟器并创建会话，执行JNI_OnLoad/init_array。",
+     "params": [
+      {
+       "name": "file",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "call_jni",
+       "type": "boolean",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Patch",
-     "desc": "keystone汇编文本编译机器码写入内存(运行时patch)。"
+     "desc": "keystone汇编文本编译机器码写入内存(运行时patch)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "asm",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Ub_Print_Stack",
-     "desc": "打印栈内存(hexdump)。"
+     "desc": "打印栈内存(hexdump)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "size",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Read_String",
-     "desc": "读C字符串(遇\\0截断)。"
+     "desc": "读C字符串(遇\\0截断)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "max_len",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Register_JNI",
-     "desc": "注册 JNI 方法，使 RegisterNatives 能找到实现。"
+     "desc": "注册 JNI 方法，使 RegisterNatives 能找到实现。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "class_name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "method",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "signature",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Regs",
-     "desc": "读/写CPU寄存器(不传set返回x0-x28快照)。"
+     "desc": "读/写CPU寄存器(不传set返回x0-x28快照)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "set",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Restore_State",
-     "desc": "恢复Ub_Save_State保存的寄存器快照。"
+     "desc": "恢复Ub_Save_State保存的寄存器快照。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Ub_Save_State",
-     "desc": "保存CPU寄存器快照(反复调换参)。"
+     "desc": "保存CPU寄存器快照(反复调换参)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Ub_Search",
-     "desc": "内存中搜hex字节模式(机器码/常量)。"
+     "desc": "内存中搜hex字节模式(机器码/常量)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "pattern",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "start",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "size",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Sequence",
-     "desc": "多函数顺序调用链(共享内存态)。"
+     "desc": "多函数顺序调用链(共享内存态)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "calls",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Ub_Session",
-     "desc": "建立/复用 Unidbg 模拟会话。"
+     "desc": "建立/复用 Unidbg 模拟会话。",
+     "params": [
+      {
+       "name": "file",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "call_jni",
+       "type": "boolean",
+       "desc": "",
+       "required": false
+      },
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Stdout_Capture",
-     "desc": "捕获stdout/printf输出。"
+     "desc": "捕获stdout/printf输出。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Ub_Struct_Build",
-     "desc": "构造C结构体作参数。"
+     "desc": "构造C结构体作参数。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "spec",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Ub_Stub",
-     "desc": "给函数打桩直接返回指定值(绕过校验)。"
+     "desc": "给函数打桩直接返回指定值(绕过校验)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "symbol",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "ret_value",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Syscall",
-     "desc": "触发系统调用。"
+     "desc": "触发系统调用。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "number",
+       "type": "integer",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "args",
+       "type": "object",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Ub_Write",
-     "desc": "写模拟器内存(hex)，写后回读校验。"
+     "desc": "写模拟器内存(hex)，写后回读校验。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "hex_bytes",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     }
    ]
   },
@@ -1287,55 +5675,309 @@
    "tools": [
     {
      "name": "Nav_BuildGraph",
-     "desc": "显式建调用图并返回节点/边。"
+     "desc": "显式建调用图并返回节点/边。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "func",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "depth",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Nav_Build_Call_Graph",
-     "desc": "建某函数调用图(axf递归)。"
+     "desc": "建某函数调用图(axf递归)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "func",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "depth",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Nav_CallChain",
-     "desc": "A→B 调用链寻径。"
+     "desc": "A→B 调用链寻径。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "from_func",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "to_func",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Nav_Call_Chain",
-     "desc": "A→B→C调用链(BFS寻径)。"
+     "desc": "A→B→C调用链(BFS寻径)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "from_func",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "to_func",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Nav_Close",
-     "desc": "释放会话缓存的调用图。"
+     "desc": "释放会话缓存的调用图。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Nav_Cycle",
-     "desc": "检测调用环(递归/互相调用)。"
+     "desc": "检测调用环(递归/互相调用)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "max_cycles",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Nav_DFS",
-     "desc": "深度优先遍历(down 看它调谁 / up 看谁调它)。"
+     "desc": "深度优先遍历(down 看它调谁 / up 看谁调它)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "func",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "depth",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      },
+      {
+       "name": "direction",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Nav_Deobfuscate_Guide",
-     "desc": "反混淆导航(识别OLLVM扁平化/BCF+还原思路)。"
+     "desc": "反混淆导航(识别OLLVM扁平化/BCF+还原思路)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "func",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Nav_Dominators",
-     "desc": "枢纽函数(入度高,关键逻辑节点)。"
+     "desc": "枢纽函数(入度高,关键逻辑节点)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "func",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "depth",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Nav_ExportGraph",
-     "desc": "导出图到文件(json/dot/mermaid)，可 nav_load 载回。"
+     "desc": "导出图到文件(json/dot/mermaid)，可 nav_load 载回。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "func",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "path",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "fmt",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "depth",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Nav_Export_Graph",
-     "desc": "导出调用图(json/mermaid文件)，path 非空时另存文件。"
+     "desc": "导出调用图(json/mermaid文件)，path 非空时另存文件。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "func",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "path",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "fmt",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "depth",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Nav_Function",
-     "desc": "单函数画像(调用者/被调用者/是否叶子)。"
+     "desc": "单函数画像(调用者/被调用者/是否叶子)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "func",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Nav_Function_Context",
-     "desc": "函数上下文(参数/变量/callee/caller/伪C)。"
+     "desc": "函数上下文(参数/变量/callee/caller/伪C)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "func",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Nav_List_Sessions",
@@ -1343,39 +5985,165 @@
     },
     {
      "name": "Nav_Load",
-     "desc": "从磁盘加载已导出的图，避免每次重建。"
+     "desc": "从磁盘加载已导出的图，避免每次重建。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "path",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Nav_Mermaid",
-     "desc": "生成调用图Mermaid(粘进渲染器)。"
+     "desc": "生成调用图Mermaid(粘进渲染器)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "func",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "depth",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Nav_Modules",
-     "desc": "列出会话涉及的段/模块信息。"
+     "desc": "列出会话涉及的段/模块信息。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Nav_Patch_Candidates",
-     "desc": "推荐值得 patch 的函数(校验/付费/反调试关键词+入度)。"
+     "desc": "推荐值得 patch 的函数(校验/付费/反调试关键词+入度)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "keywords",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "max_results",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Nav_Reverse_Search",
-     "desc": "从结果字符串反查引用地址。"
+     "desc": "从结果字符串反查引用地址。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "result_str",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Nav_Stats",
-     "desc": "图统计(节点/边/出入度 Top/孤立函数)。"
+     "desc": "图统计(节点/边/出入度 Top/孤立函数)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Nav_Symbol_Jump",
-     "desc": "符号跳转+伪C上下文。"
+     "desc": "符号跳转+伪C上下文。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "symbol",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Nav_What_Calls",
-     "desc": "X调用了谁(axf)。"
+     "desc": "X调用了谁(axf)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "func",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Nav_Who_Calls",
-     "desc": "谁调用了X(axt)。"
+     "desc": "谁调用了X(axt)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "func",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     }
    ]
   },
@@ -1394,51 +6162,159 @@
    "tools": [
     {
      "name": "Pentest_Auth_Bypass",
-     "desc": "鉴权绕过:定位判断点+arm64恒真patch字节+Frida hook。"
+     "desc": "鉴权绕过:定位判断点+arm64恒真patch字节+Frida hook。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "func",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Pentest_Auth_Extract",
-     "desc": "过鉴权① 提取so里鉴权相关字符串+判断函数。"
+     "desc": "过鉴权① 提取so里鉴权相关字符串+判断函数。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Pentest_C2_Trace",
-     "desc": "C2/回传通道映射(信标端点)。"
+     "desc": "C2/回传通道映射(信标端点)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Pentest_CertPin_Extract",
-     "desc": "提取证书pinning标记(bpg/fingerprint/pin)。"
+     "desc": "提取证书pinning标记(bpg/fingerprint/pin)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Pentest_Cred_Hunt",
-     "desc": "凭证猎捕:硬编码账号密码/JWT/设备ID。"
+     "desc": "凭证猎捕:硬编码账号密码/JWT/设备ID。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Pentest_Endpoint_Extract",
-     "desc": "打通服务器① 提取服务端URL/域名/IP/接口路径。"
+     "desc": "打通服务器① 提取服务端URL/域名/IP/接口路径。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Pentest_Key_Extract",
-     "desc": "提取硬编码密钥(32/64hex=AES/base64/PEM/算法名)。"
+     "desc": "提取硬编码密钥(32/64hex=AES/base64/PEM/算法名)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Pentest_Lateral_Report",
-     "desc": "横向汇总:攻击面报告(auth/端点/密钥/凭证/C2)。"
+     "desc": "横向汇总:攻击面报告(auth/端点/密钥/凭证/C2)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Pentest_SSL_Bypass",
-     "desc": "生成Frida SSL证书校验绕过脚本。"
+     "desc": "生成Frida SSL证书校验绕过脚本。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "out",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Pentest_Server_Fingerprint",
-     "desc": "打通服务器:对域名/IP出nmap/TLS指纹/WAF/路径枚举命令。"
+     "desc": "打通服务器:对域名/IP出nmap/TLS指纹/WAF/路径枚举命令。",
+     "params": [
+      {
+       "name": "target",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Pentest_Sign_Bypass",
-     "desc": "签名校验绕过:getPackageInfo/signatures hook方案。"
+     "desc": "签名校验绕过:getPackageInfo/signatures hook方案。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Pentest_Traffic_Replay",
-     "desc": "流量重放/篡改:Frida hook SSL_write抓明文。"
+     "desc": "流量重放/篡改:Frida hook SSL_write抓明文。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     }
    ]
   },
@@ -1457,39 +6333,165 @@
    "tools": [
     {
      "name": "Apk_Close",
-     "desc": "关闭APK会话:关Blutter+删临时解压文件。"
+     "desc": "关闭APK会话:关Blutter+删临时解压文件。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Apk_Diff",
-     "desc": "对比两个 APK 的差异(增删/变化/按类型分桶)。"
+     "desc": "对比两个 APK 的差异(增删/变化/按类型分桶)。",
+     "params": [
+      {
+       "name": "a",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "b",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "show_unchanged",
+       "type": "boolean",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Apk_Install",
-     "desc": "静默安装APK并启动，返回进程ID。"
+     "desc": "静默安装APK并启动，返回进程ID。",
+     "params": [
+      {
+       "name": "apk_session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Apk_Install_Start",
-     "desc": "安装并启动APK(需设备,返回PID)。"
+     "desc": "安装并启动APK(需设备,返回PID)。",
+     "params": [
+      {
+       "name": "apk_session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "package",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Apk_Open",
-     "desc": "【第1步】打开APK/SO，自动识别类型走不同流程。APK→解压+Flutter检测+Blutter；SO→直接r2。"
+     "desc": "【第1步】打开APK/SO，自动识别类型走不同流程。APK→解压+Flutter检测+Blutter；SO→直接r2。",
+     "params": [
+      {
+       "name": "file",
+       "type": "string",
+       "desc": "",
+       "required": false
+      },
+      {
+       "name": "upload_id",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "arch",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "skip_blutter",
+       "type": "boolean",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Apk_Pack",
-     "desc": "【打包】修改后的so替换回原APK并重新打包签名(带_成品后缀)。"
+     "desc": "【打包】修改后的so替换回原APK并重新打包签名(带_成品后缀)。",
+     "params": [
+      {
+       "name": "apk_session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "do_sign",
+       "type": "boolean",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Apk_Strings",
-     "desc": "APK层全字符串(扫解压目录)。"
+     "desc": "APK层全字符串(扫解压目录)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "filter",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Apk_Upload",
-     "desc": "局域网/upload端点注册(upload_id供Apk_Open)。"
+     "desc": "局域网/upload端点注册(upload_id供Apk_Open)。",
+     "params": [
+      {
+       "name": "file_path",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "label",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Apk_Version_Info",
-     "desc": "APK会话概要(stack/so数/blutter)。"
+     "desc": "APK会话概要(stack/so数/blutter)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     }
    ]
   },
@@ -1512,7 +6514,15 @@
     },
     {
      "name": "Engine_Fetch_Plan",
-     "desc": "某引擎的补货步骤(只出命令，不下网)。"
+     "desc": "某引擎的补货步骤(只出命令，不下网)。",
+     "params": [
+      {
+       "name": "engine",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Engine_Guide",
@@ -1528,19 +6538,69 @@
     },
     {
      "name": "Engine_Probe",
-     "desc": "探测引擎资产：列出 so 导出符号、猜测入口函数、试 dlopen。"
+     "desc": "探测引擎资产：列出 so 导出符号、猜测入口函数、试 dlopen。",
+     "params": [
+      {
+       "name": "name",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "path",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Engine_R2_Cmd",
-     "desc": "直接跑一条 r2 命令验证接入(自动选后端)。"
+     "desc": "直接跑一条 r2 命令验证接入(自动选后端)。",
+     "params": [
+      {
+       "name": "so",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "cmds",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "timeout",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Engine_R2_Deps",
-     "desc": "检查 radare2 的 libr_*.so 是否齐全(bridge 依赖 libr_core.so)。"
+     "desc": "检查 radare2 的 libr_*.so 是否齐全(bridge 依赖 libr_core.so)。",
+     "params": [
+      {
+       "name": "dir_hint",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Engine_R2_Lib",
-     "desc": "手动加载 libr_core.so(ctypes 模式)并返回可用状态。"
+     "desc": "手动加载 libr_core.so(ctypes 模式)并返回可用状态。",
+     "params": [
+      {
+       "name": "dir_hint",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Engine_R2_Status",
@@ -1548,7 +6608,57 @@
     },
     {
      "name": "Engine_Set",
-     "desc": "写入某引擎的调用配置(mode/entry/cmd/argtypes)。"
+     "desc": "写入某引擎的调用配置(mode/entry/cmd/argtypes)。",
+     "params": [
+      {
+       "name": "name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "mode",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "entry",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "cmd",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "argtypes",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "restype",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "args",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "path",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Engine_Status",
@@ -1567,55 +6677,409 @@
    "scene": "适用场景：环境操作、批量处理、结果归档。",
    "flow": "工作流：Os_* 直接调用，无需会话。",
    "limit": "边界：Shell_Command 受权限限制。",
-   "count": 20,
+   "count": 24,
    "tools": [
     {
      "name": "Address_Lookup",
-     "desc": "【查询】地址双向翻译：静态偏移↔Blutter，运行时↔模块+偏移。"
+     "desc": "【查询】地址双向翻译：静态偏移↔Blutter，运行时↔模块+偏移。",
+     "params": [
+      {
+       "name": "blutter_session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "frida_session_id",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Apply_Hex_Patch",
-     "desc": "对指定地址写十六进制字节补丁(NOP/改条件/注入)。"
+     "desc": "对指定地址写十六进制字节补丁(NOP/改条件/注入)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "hex_bytes",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
+    },
+    {
+     "name": "Blob_Read",
+     "desc": "取回被截断的大结果(反汇编/内存dump等)：按 blob_id 分页读取完整内容。",
+     "params": [
+      {
+       "name": "blob_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "limit",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      },
+      {
+       "name": "offset",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      }
+     ]
+    },
+    {
+     "name": "Capstone_Disasm",
+     "desc": "Capstone 独立反汇编：直接对裸字节或文件偏移反汇编，不用先建 r2 会话。参数 hex=<十六进制> 或 so=<文件>+offset+length，arch=arm64|arm|x86。",
+     "params": [
+      {
+       "name": "hex",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "so",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "path",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "file",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "offset",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "length",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "size",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "addr",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "arch",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "count",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "limit",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "File_Download",
-     "desc": "获取文件下载ID用于局域网下载。"
+     "desc": "获取文件下载ID用于局域网下载。",
+     "params": [
+      {
+       "name": "apk_session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Find_Jni_Methods",
-     "desc": "搜索所有JNI导出函数(Java_xxx)。"
+     "desc": "搜索所有JNI导出函数(Java_xxx)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
+    },
+    {
+     "name": "Frida_Channel",
+     "desc": "Frida 双通道：status探测(gadget/server双通道就绪情况) / start拉起frida-server / script生成hook脚本 / gadget_config生成gadget配置。",
+     "params": [
+      {
+       "name": "action",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "module",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "addr",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "offset",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "tag",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "script",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "script_path",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Os_Find",
-     "desc": "按glob找文件。"
+     "desc": "按glob找文件。",
+     "params": [
+      {
+       "name": "base_dir",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "pattern",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Os_Grep",
-     "desc": "文件内grep正则。"
+     "desc": "文件内grep正则。",
+     "params": [
+      {
+       "name": "path",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "pattern",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Os_List_Dir",
-     "desc": "列出设备指定目录内容(ls -la)。"
+     "desc": "列出设备指定目录内容(ls -la)。",
+     "params": [
+      {
+       "name": "path",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Os_Read_File",
-     "desc": "读设备文本文件内容(cat)。"
+     "desc": "读设备文本文件内容(cat)。",
+     "params": [
+      {
+       "name": "path",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Os_Stat",
-     "desc": "文件stat(大小/权限)。"
+     "desc": "文件stat(大小/权限)。",
+     "params": [
+      {
+       "name": "path",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Os_Write_File",
-     "desc": "写设备文本文件。"
+     "desc": "写设备文本文件。",
+     "params": [
+      {
+       "name": "path",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "content",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
+    },
+    {
+     "name": "Patch_Session",
+     "desc": "补丁编辑会话：list / open开会话快照 / commit提交版本 / undo / redo / rollback回初版 / apply写回 / audit查看历史。",
+     "params": [
+      {
+       "name": "action",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "session",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "id",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "target",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "path",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "file",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "so",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "note",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Project_Delete",
-     "desc": "删除指定已保存项目。"
+     "desc": "删除指定已保存项目。",
+     "params": [
+      {
+       "name": "project_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Project_Export",
-     "desc": "导出项目为分析报告(markdown/html)。"
+     "desc": "导出项目为分析报告(markdown/html)。",
+     "params": [
+      {
+       "name": "project_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "format",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Project_List",
@@ -1623,31 +7087,147 @@
     },
     {
      "name": "Project_Load",
-     "desc": "加载之前保存的项目。"
+     "desc": "加载之前保存的项目。",
+     "params": [
+      {
+       "name": "project_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Project_Save",
-     "desc": "保存当前分析状态为项目。"
+     "desc": "保存当前分析状态为项目。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "file_path",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "notes",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "commands",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      },
+      {
+       "name": "arch",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Read_Logcat",
-     "desc": "读Android系统日志logcat，支持tag过滤。"
+     "desc": "读Android系统日志logcat，支持tag过滤。",
+     "params": [
+      {
+       "name": "lines",
+       "type": "integer",
+       "desc": "",
+       "required": false
+      },
+      {
+       "name": "tag",
+       "type": "string",
+       "desc": "optional",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Rename_Function",
-     "desc": "重命名函数(afn)。"
+     "desc": "重命名函数(afn)。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "address",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "name",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Scan_Crypto_Signatures",
-     "desc": "扫AES/DES/MD5/SHA常量特征定位加密。"
+     "desc": "扫AES/DES/MD5/SHA常量特征定位加密。",
+     "params": [
+      {
+       "name": "session_id",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     },
     {
      "name": "Shell_Command",
-     "desc": "在Android设备执行Shell命令(use_root则以su执行)。"
+     "desc": "在Android设备执行Shell命令(use_root则以su执行)。",
+     "params": [
+      {
+       "name": "command",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "use_root",
+       "type": "boolean",
+       "desc": "",
+       "required": false
+      }
+     ]
     },
     {
      "name": "Sqlite_Query",
-     "desc": "用原生SQLiteDatabase执行SQL(读SELECT/写DML)。"
+     "desc": "用原生SQLiteDatabase执行SQL(读SELECT/写DML)。",
+     "params": [
+      {
+       "name": "db_path",
+       "type": "string",
+       "desc": "",
+       "required": true
+      },
+      {
+       "name": "query",
+       "type": "string",
+       "desc": "",
+       "required": true
+      }
+     ]
     }
    ]
   }

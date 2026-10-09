@@ -19,6 +19,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.preference.PreferenceManager;
+import android.widget.EditText;
+import android.widget.ScrollView;
+import android.widget.TextView;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -264,9 +267,9 @@ public class MainActivity extends Activity {
                     String nm = t.optString("name"), ds = t.optString("desc");
                     View r = toolRow(e.optString("icon", "\u2699"), color, engName, nm, ds);
                     r.setTag(engName + " " + nm + " " + ds);
-                    final String toolName = nm;
+                    final JSONObject toolObj = t;
                     r.setOnClickListener(new View.OnClickListener() {
-                        public void onClick(View v) { runTool(toolName); }
+                        public void onClick(View v) { showToolForm(toolObj); }
                     });
                     rs.add(r);
                     tl.addView(r, gapS());
@@ -441,17 +444,98 @@ public class MainActivity extends Activity {
     }
 
     /** 点击工具：本机真实执行并把结果展示出来。 */
-    void runTool(final String toolName) {
+    /**
+     * 点工具后先弹参数表单（有参数时），填完再执行。
+     * 之前只能自动塞 apk_path，R2_/Blutter_ 这类需要路径/地址的工具根本没法用。
+     */
+    void showToolForm(final JSONObject tool) {
+        final String name = tool.optString("name");
+        JSONArray params = tool.optJSONArray("params");
+        if (params == null || params.length() == 0) {
+            runTool(name, new JSONObject());
+            return;
+        }
+        // 先预填能推断的值，减少手工输入
+        final JSONObject preset = new JSONObject();
+        try {
+            String apk = toolExec == null ? null : toolExec.getCurrentApk();
+            for (int i = 0; i < params.length(); i++) {
+                JSONObject p = params.optJSONObject(i);
+                if (p == null) continue;
+                String pn = p.optString("name");
+                if (apk != null && (pn.equals("apk_path") || pn.equals("path")
+                        || pn.equals("apk") || pn.equals("file"))) {
+                    preset.put(pn, apk);
+                }
+            }
+        } catch (Exception ignored) {}
+
+        android.app.AlertDialog.Builder b = new android.app.AlertDialog.Builder(this);
+        b.setTitle(name);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(18), dp(10), dp(18), dp(4));
+        final ArrayList<EditText> inputs = new ArrayList<EditText>();
+        final ArrayList<String> keys = new ArrayList<String>();
+        for (int i = 0; i < params.length(); i++) {
+            JSONObject p = params.optJSONObject(i);
+            if (p == null) continue;
+            String pn = p.optString("name");
+            String pd = p.optString("desc");
+            boolean req = p.optBoolean("required");
+            TextView lab = new TextView(this);
+            lab.setText(pn + (req ? " *" : "") + (pd.isEmpty() ? "" : "  (" + pd + ")"));
+            lab.setTextSize(12);
+            lab.setTextColor(req ? 0xFFC5221F : 0xFF5F6368);
+            box.addView(lab);
+            final EditText et = new EditText(this);
+            et.setText(preset.optString(pn, ""));
+            et.setSingleLine(true);
+            et.setTextSize(13);
+            et.setPadding(dp(10), dp(8), dp(10), dp(8));
+            box.addView(et);
+            inputs.add(et);
+            keys.add(pn);
+        }
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        sv.addView(box);
+        b.setView(sv);
+        b.setNegativeButton("取消", null);
+        b.setPositiveButton("执行", new android.content.DialogInterface.OnClickListener() {
+            public void onClick(android.content.DialogInterface dlg, int w) {
+                JSONObject args = new JSONObject();
+                for (int i = 0; i < inputs.size(); i++) {
+                    String v = inputs.get(i).getText() == null ? ""
+                            : inputs.get(i).getText().toString().trim();
+                    if (v.isEmpty()) continue;
+                    try { args.put(keys.get(i), v); } catch (Exception ignored) {}
+                }
+                runTool(name, args);
+            }
+        });
+        b.show();
+    }
+
+    void runTool(final String toolName) { runTool(toolName, new JSONObject()); }
+
+    void runTool(final String toolName, final JSONObject userArgs) {
         if (toolExec == null) toolExec = new ToolExecutor(this);
         appendLog("\u25b6 调用 " + toolName + " …");
         new Thread(new Runnable() { public void run() {
             String res;
             try {
                 JSONObject args = new JSONObject();
+                try {
+                    java.util.Iterator<String> it = userArgs.keys();
+                    while (it.hasNext()) {
+                        String k = it.next();
+                        args.put(k, userArgs.get(k));
+                    }
+                } catch (Exception ignored) {}
                 String apk = toolExec.getCurrentApk();
                 if (apk != null) {
-                    args.put("apk_path", apk);
-                    args.put("path", apk);
+                    if (!args.has("apk_path")) args.put("apk_path", apk);
+                    if (!args.has("path")) args.put("path", apk);
                 }
                 res = toolExec.execute(toolName, args);
             } catch (Exception e) {

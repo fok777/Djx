@@ -100,6 +100,7 @@ public final class ToolExecutor {
         if (n.startsWith("Frida_Channel")) { fridaChannel(a, out); return; }
         if (n.startsWith("Patch_Session")) { patchSession(a, out); return; }
         if (n.startsWith("Ub_")) { unidbg(n, a, out); return; }
+        if (n.startsWith("Capstone_") || n.startsWith("Disasm_")) { capstone(n, a, out); return; }
 
         // ---------- APK ----------
         if (n.equals("Apk_Open") || n.equals("Apk_Info") || n.equals("Apk_List")) {
@@ -490,6 +491,120 @@ public final class ToolExecutor {
         return "if ! command -v blutter >/dev/null 2>&1; then "
                 + "EXE=" + exe + "; else EXE=blutter; fi; "
                 + "$EXE -i '" + soPath + "' -o '" + outDir.getAbsolutePath() + "'";
+    }
+
+    /**
+     * Capstone 独立反汇编：直接对裸字节/文件偏移反汇编，
+     * 不用先建 r2 会话（那段流程对"就想知道这几字节是什么指令"太重）。
+     */
+    private void capstone(String n, JSONObject a, JSONObject out) throws Exception {
+        if (!CapstoneJni.load(ctx)) {
+            out.put("engine", "capstone (不可用)");
+            out.put("error", CapstoneJni.lastError());
+            out.put("hint", "需要 libcapstone.so；若要走 JNI 桥还需 libdisassembler.so");
+            return;
+        }
+        String path = opt(a, "so", "path", "file", "bin");
+        String hex = opt(a, "hex", "bytes", "code");
+        byte[] code = null;
+
+        if (hex != null && !hex.isEmpty()) {
+            code = parseHex(hex);
+            if (code == null) { out.put("error", "hex 格式不对（示例: 5F2403D5）"); return; }
+        } else if (path != null) {
+            File f = new File(path);
+            if (!f.isFile()) { out.put("error", "文件不存在: " + path); return; }
+            long off = 0;
+            String os = opt(a, "offset", "off");
+            if (os != null) {
+                try {
+                    off = os.startsWith("0x") ? Long.parseLong(os.substring(2), 16)
+                            : Long.parseLong(os);
+                } catch (NumberFormatException ignored) {}
+            }
+            int len = 256;
+            String ls = opt(a, "length", "size", "len");
+            if (ls != null) { try { len = Integer.parseInt(ls); } catch (Exception ignored) {} }
+            code = readBytes(f, off, len);
+            if (code == null) { out.put("error", "读取失败"); return; }
+        } else {
+            out.put("engine", "capstone");
+            out.put("status", CapstoneJni.describe(ctx));
+            out.put("usage", "传 hex=<十六进制> 或 so=<文件路径>+offset+length");
+            return;
+        }
+
+        long addr = 0;
+        String as = opt(a, "addr", "address", "base");
+        if (as != null) {
+            try {
+                addr = as.startsWith("0x") ? Long.parseLong(as.substring(2), 16)
+                        : Long.parseLong(as);
+            } catch (NumberFormatException ignored) {}
+        }
+        int arch = CapstoneJni.ARCH_ARM64;
+        String archS = opt(a, "arch");
+        if (archS != null) {
+            String v = archS.toLowerCase();
+            if (v.contains("arm64") || v.contains("aarch64")) arch = CapstoneJni.ARCH_ARM64;
+            else if (v.contains("x86") || v.contains("intel")) arch = CapstoneJni.ARCH_X86;
+            else if (v.contains("arm")) arch = CapstoneJni.ARCH_ARM;
+        }
+        int mode = arch == CapstoneJni.ARCH_ARM64 ? CapstoneJni.MODE_LITTLE_ENDIAN
+                : CapstoneJni.MODE_32;
+        int count = 0;
+        String cs = opt(a, "count", "limit");
+        if (cs != null) { try { count = Integer.parseInt(cs); } catch (Exception ignored) {} }
+
+        List<CapstoneJni.Insn> list = CapstoneJni.disasm(code, addr, arch, mode, count);
+        out.put("engine", "capstone (JNI)");
+        out.put("arch", arch);
+        out.put("count", list.size());
+        JSONArray arr = new JSONArray();
+        for (CapstoneJni.Insn in : list) {
+            JSONObject o = new JSONObject();
+            o.put("address", "0x" + Long.toHexString(in.address));
+            o.put("mnemonic", in.mnemonic);
+            o.put("operands", in.operands);
+            arr.put(o);
+        }
+        out.put("insns", arr);
+        if (list.isEmpty()) {
+            out.put("hint", "反汇编结果为空：可能是桥签名不匹配，"
+                    + "或该架构未被 capstone 启用");
+        }
+    }
+
+    /** 解析十六进制串，允许空格/冒号分隔。 */
+    private static byte[] parseHex(String s) {
+        if (s == null) return null;
+        String clean = s.replaceAll("[\\s:,\\-]", "");
+        if (clean.length() == 0 || clean.length() % 2 != 0) return null;
+        try {
+            byte[] out = new byte[clean.length() / 2];
+            for (int i = 0; i < out.length; i++) {
+                out[i] = (byte) Integer.parseInt(clean.substring(i * 2, i * 2 + 2), 16);
+            }
+            return out;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** 从文件读一段。 */
+    private static byte[] readBytes(File f, long off, int len) {
+        try {
+            java.io.RandomAccessFile raf = new java.io.RandomAccessFile(f, "r");
+            if (off >= raf.length()) { raf.close(); return new byte[0]; }
+            int n = (int) Math.min(len, raf.length() - off);
+            byte[] b = new byte[n];
+            raf.seek(off);
+            raf.readFully(b);
+            raf.close();
+            return b;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**
