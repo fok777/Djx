@@ -11,6 +11,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # 发 Release 需要写权限，默认 GITHUB_TOKEN 可能只有读权限
+    permissions:
+      contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
 
