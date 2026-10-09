@@ -3,7 +3,12 @@ package com.r2b.app;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
+import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
+import android.os.Build;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -34,6 +39,12 @@ public class MainActivity extends Activity {
     LinearLayout toolsRoot;
     Handler ui = new Handler(Looper.getMainLooper());
     McpService mcp;
+    /** 服务日志回调（注册到 McpForegroundService）。 */
+    final McpForegroundService.LogSink sink = new McpForegroundService.LogSink() {
+        public void onLog(final String line) {
+            appendLog(line);
+        }
+    };
     volatile boolean serverOn = false;
 
     @Override
@@ -129,10 +140,10 @@ public class MainActivity extends Activity {
         // ===== 按钮事件 =====
         remote.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
             mainView.setVisibility(View.GONE); svcView.setVisibility(View.VISIBLE);
-            unpackEngines(); startMcp(); } });
+            syncServiceState(); } });
         back.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
             svcView.setVisibility(View.GONE); mainView.setVisibility(View.VISIBLE); } });
-        statusText.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { startMcp(); } });
+        statusText.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { toggleMcp(); } });
         pick.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT); i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("*/*"); startActivityForResult(i, 101); } });
         toolListBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { showToolsDialog(); } });
         copyLog.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { copyAll(); } });
@@ -142,6 +153,10 @@ public class MainActivity extends Activity {
         sv.setFillViewport(true);   // 内容不足一屏时也铺满，否则露出黑色 window 背景
         sv.addView(root);
         setContentView(sv);
+
+        bindServiceLog();       // 接收前台服务的日志
+        syncServiceState();     // 与实际运行状态对齐（进程可能已被杀）
+        askBatteryWhitelist();  // 引导加入电池优化白名单，否则后台易被杀
     }
 
     // ===== 工具列表弹窗（搜索 + 引擎卡片 + 点开展开工具）=====
@@ -435,28 +450,95 @@ public class MainActivity extends Activity {
         } }).start();
     }
 
+    /** 启动 MCP：交给前台 Service，Activity 销毁不影响服务。 */
     void startMcp() {
-        if (serverOn) {
-            if (mcp != null) mcp.stop();
-            serverOn = false;
-            statusText.setText("服务已停止");
-            statusText.setTextColor(0xFF8A929E);
-            return;
+        Intent i = new Intent(this, McpForegroundService.class);
+        i.setAction(McpForegroundService.ACTION_START);
+        i.putExtra(McpForegroundService.EXTRA_PORT, 5051);
+        i.putExtra(McpForegroundService.EXTRA_BACKEND, backendUrl());
+        if (Build.VERSION.SDK_INT >= 26) {
+            startForegroundService(i);
+        } else {
+            startService(i);
         }
-        final String backend = android.preference.PreferenceManager
-                .getDefaultSharedPreferences(this).getString("backend_url", "");
-        mcp = new McpService(5051, backend, loadToolsRaw(), new McpService.Sink() {
-            public void onLog(final String line) {
-                ui.post(new Runnable() { public void run() {
-                    if (logView != null) logView.append("\n" + line);
-                } });
-            }
-        });
-        mcp.start();
         serverOn = true;
         statusText.setText("服务运行中");
         statusText.setTextColor(0xFF188038);
         statusText.setTag("stop");
+        appendLog("已请求启动前台服务…");
+        // 通知权限（Android 13+）：没权限通知不显示，服务仍能跑，但用户看不到状态
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
+                        != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(
+                    new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 201);
+        }
+    }
+
+    void stopMcp() {
+        Intent i = new Intent(this, McpForegroundService.class);
+        i.setAction(McpForegroundService.ACTION_STOP);
+        startService(i);
+        serverOn = false;
+        statusText.setText("服务已停止");
+        statusText.setTextColor(0xFF8A929E);
+        statusText.setTag(null);
+        appendLog("已请求停止服务。");
+    }
+
+    String backendUrl() {
+        return android.preference.PreferenceManager
+                .getDefaultSharedPreferences(this).getString("backend_url", "");
+    }
+
+    /** 状态切换：点状态文字在 启/停 之间切换。 */
+    void toggleMcp() {
+        if (serverOn) stopMcp(); else startMcp();
+    }
+
+    void appendLog(final String line) {
+        if (logView == null) return;
+        ui.post(new Runnable() { public void run() {
+            logView.append("\n" + line);
+        } });
+    }
+
+    /** 注册服务日志回调；Activity 重建后先补历史日志。 */
+    void bindServiceLog() {
+        String hist = McpForegroundService.bufferedLog();
+        if (hist != null && hist.length() > 0 && logView != null) {
+            logView.append("\n[历史] " + hist.trim());
+        }
+        McpForegroundService.addSink(sink);
+    }
+
+    boolean isServiceUp() {
+        // 通过端口探测判断是否真的在监听（比记标志位可靠：进程被杀后标志位会失真）
+        try {
+            java.net.Socket s = new java.net.Socket();
+            s.connect(new java.net.InetSocketAddress("127.0.0.1", 5051), 300);
+            s.close();
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** 进服务页时同步真实状态（进程可能已被杀或已在运行）。 */
+    void syncServiceState() {
+        new Thread(new Runnable() { public void run() {
+            final boolean up = isServiceUp();
+            ui.post(new Runnable() { public void run() {
+                serverOn = up;
+                if (up) {
+                    statusText.setText("服务运行中");
+                    statusText.setTextColor(0xFF188038);
+                } else {
+                    statusText.setText("服务已停止");
+                    statusText.setTextColor(0xFF8A929E);
+                }
+            } });
+        } }).start();
     }
 
     void copyAll() {
@@ -547,6 +629,48 @@ public class MainActivity extends Activity {
         return p;
     }
     int dp(int d) { return (int) (d * getResources().getDisplayMetrics().density); }
+
+    @Override
+    /** Activity 销毁：只解绑日志回调，绝不杀服务（服务独立存活）。 */
+    @Override
+    protected void onDestroy() {
+        McpForegroundService.removeSink(sink);
+        super.onDestroy();
+        Log.i("R2B", "Activity 销毁，MCP 服务继续运行");
+    }
+
+    /** 回到前台时同步真实状态。 */
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (svcView != null && svcView.getVisibility() == View.VISIBLE) syncServiceState();
+    }
+
+    /** 电池优化白名单：不加入的话系统会在几分钟内杀掉后台服务。 */
+    void askBatteryWhitelist() {
+        if (Build.VERSION.SDK_INT < 23) return;
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        if (pm == null || pm.isIgnoringBatteryOptimizations(getPackageName())) return;
+        new AlertDialog.Builder(this)
+            .setTitle("保持服务运行")
+            .setMessage("MCP 服务需要在后台持续运行。\n"
+                    + "若不加入电池优化白名单，系统会在几分钟后杀掉服务，"
+                    + "表现为“挂着挂着就没了”。")
+            .setPositiveButton("去设置", new DialogInterface.OnClickListener() {
+                public void onClick(DialogInterface d, int w) {
+                    try {
+                        Intent i = new Intent(
+                                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                        i.setData(Uri.parse("package:" + getPackageName()));
+                        startActivity(i);
+                    } catch (Exception e) {
+                        appendLog("无法打开电池优化设置: " + e.getMessage());
+                    }
+                }
+            })
+            .setNegativeButton("暂不", null)
+            .show();
+    }
 
     @Override
     protected void onActivityResult(int req, int res, Intent data) {

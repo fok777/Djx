@@ -37,6 +37,11 @@ class Config:
     analyze_timeout: int = _env_int("R2B_ANALYZE_TIMEOUT", 300)
     frida_timeout: int = _env_int("R2B_FRIDA_TIMEOUT", 30)
 
+    # 单个工具调用的兜底超时（秒）。0 或负数 = 不限时。
+    # 作用：一个工具卡死时不至于让整个 HTTP 服务挂住——
+    # 旧版"前端后端不稳定"很大一部分来源就是单工具阻塞把服务拖死。
+    tool_timeout: int = _env_int("R2B_TOOL_TIMEOUT", 120)
+
     # ---- 输出限制 ----
     max_output_chars: int = _env_int("R2B_MAX_OUTPUT", 200_000)
     max_search_results: int = _env_int("R2B_MAX_RESULTS", 200)

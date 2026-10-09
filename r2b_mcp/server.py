@@ -8,6 +8,7 @@ r2b_mcp/server.py — Radare2Blutter MCP 服务端（JSON-RPC 2.0）
 """
 import os, sys, json, inspect, shutil, traceback
 from typing import Dict, Any, Optional
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from engine import (r2_engine, blutter_engine, frida_engine, ub_engine, apk_engine,
                     misc_engine, tools_extra, il2cpp_engine, nav_engine, pentest_engine,
                     blutter_extra, ub_extra, il2cpp_extra, nav_extra, frida_extra,
@@ -107,6 +108,20 @@ def _status() -> Dict:
             "note": "内置 so (frida_gadget/blutter) 已就绪；frida_server/unidbg jar 缺则降级出脚本"}
 
 
+# 工具执行线程池：给每个工具调用套超时，避免单工具卡死拖垮服务。
+# 隔离性说明：Python 无法强制杀死线程，超时后该线程仍在后台跑完，
+# 但请求会立即返回错误，服务不再被阻塞。
+_TOOL_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="r2b-tool")
+
+
+def _invoke_with_timeout(fn, kwargs, timeout):
+    """在线程池里执行 fn，超时则抛 FuturesTimeout。"""
+    if timeout is None or timeout <= 0:
+        return fn(**kwargs)
+    fut = _TOOL_POOL.submit(fn, **kwargs)
+    return fut.result(timeout=timeout)
+
+
 def call_tool(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
     tool = _tool_index().get(name)
     if tool is None:
@@ -123,7 +138,8 @@ def call_tool(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
     kwargs = _bind(fn, merged)
     log.debug("调用 %s -> %s(%s)", name, route, list(kwargs))
     try:
-        result = fn(**kwargs)
+        timeout = getattr(cfg, "tool_timeout", 120)
+        result = _invoke_with_timeout(fn, kwargs, timeout)
         text = json.dumps(result, ensure_ascii=False, default=str)
         if len(text) > cfg.max_output_chars:
             text = text[:cfg.max_output_chars] + "\n...[truncated]"
@@ -133,6 +149,17 @@ def call_tool(name: str, args: Dict[str, Any]) -> Dict[str, Any]:
                   name, e, list(inspect.signature(fn).parameters))
         return {"content": [{"type": "text",
                              "text": f"参数错误 {e}；{route} 接受: {list(inspect.signature(fn).parameters)}"}],
+                "isError": True}
+    except FuturesTimeout:
+        # 超时不是崩溃：明确告诉调用方"卡住了"，并把超时值暴露出来便于调大
+        log.error("工具 %s 超过 %s 秒未完成", name, getattr(cfg, "tool_timeout", 120))
+        return {"content": [{"type": "text",
+                             "text": f"工具 {name} 执行超过 "
+                                     f"{getattr(cfg, 'tool_timeout', 120)} 秒未返回。"
+                                     f"该任务仍在后台运行，可稍后重试，"
+                                     f"或用环境变量 R2B_TOOL_TIMEOUT 调大超时。\n"
+                                     f"提示：优先改用带 timeout 参数的工具"
+                                     f"（如 R2_Cmd / Blutter_Analyze）自行控制耗时。"}],
                 "isError": True}
     except Exception as e:
         log.error("工具 %s 执行异常", name, exc_info=True)

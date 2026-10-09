@@ -1,21 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="com.r2b.app"
-    android:versionCode="1"
-    android:versionName="1.0.0">
+    android:versionCode="2"
+    android:versionName="1.1.0">
     <uses-sdk android:minSdkVersion="24" android:targetSdkVersion="35"/>
+
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+    <!-- 前台服务（Android 9+ / 14+ 均需显式声明） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <!-- 熄屏后保持 CPU / WiFi，避免 socket 断连 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- 通知权限（Android 13+，前台服务通知需要） -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- 引导用户把本应用加入电池优化白名单 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+
     <application android:label="R2B 逆向" android:allowBackup="true"
         android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round"
         android:hardwareAccelerated="true" android:debuggable="false"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
         <activity android:name=".MainActivity" android:exported="true"
-            android:configChanges="orientation|screenSize">
+            android:launchMode="singleTop"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+
+        <!-- MCP 服务跑在前台 Service 里，与 Activity 解耦：
+             Activity 被回收不影响服务运行，这是修复"挂后台闪退"的关键。 -->
+        <service android:name=".McpForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="在局域网提供 MCP (Model Context Protocol) 逆向分析服务，
+                               供 AI 客户端通过 HTTP 调用 375 个逆向工具"/>
+        </service>
     </application>
 </manifest>
