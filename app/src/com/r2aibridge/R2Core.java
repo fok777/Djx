@@ -3,36 +3,40 @@ package com.r2aibridge;
 /**
  * radare2 JNI 桥的 Java 侧声明。
  *
- * 类名与包名必须严格匹配 libr2aibridge.so 里导出的符号名：
+ * 之前一直报 ClassNotFoundException: com.r2aibridge.R2Core——
+ * 原因很直接：libr2aibridge.so 导出的方法名是
  *   Java_com_r2aibridge_R2Core_initR2Core
  *   Java_com_r2aibridge_R2Core_executeCommand
  *   Java_com_r2aibridge_R2Core_openFile
  *   Java_com_r2aibridge_R2Core_closeR2Core
  *   Java_com_r2aibridge_R2Core_testR2
+ * JNI 是按「包名_类名_方法名」找 Java 类的，所以必须存在
+ * com.r2aibridge.R2Core 这个类并声明对应的 native 方法，
+ * 否则 so 加载成功也没法调用。
  *
- * 返回值一律声明为 String：从 so 内的字符串常量
- * （"OK: r_core_cmd_str() works, version:" / "FAILED: ..."）判断，
- * 这些方法大概率返回 jstring。若实际签名不同，调用方会捕获
- * NoSuchMethodError / UnsatisfiedLinkError 并降级，不会导致进程崩溃。
- *
- * 注意：不在 static 块里 System.loadLibrary——库文件位于应用私有目录
- * （filesDir/engine/radare2/），不在系统 nativeLibraryDir，
- * 必须由调用方先用 System.load(绝对路径) 按顺序加载依赖后再加载本库。
+ * 这个包是桥 so 自带的约定，不是我们能改的——顺着它写。
  */
-public class R2Core {
+public final class R2Core {
 
-    /** 由调用方显式调用，传入 libr2aibridge.so 的绝对路径。 */
-    public static void load(String bridgePath) {
-        System.load(bridgePath);
+    private R2Core() {}
+
+    static {
+        // 由 Radare2Bridge 按依赖拓扑加载完 libr_*.so 后再加载桥
+        System.loadLibrary("r2aibridge");
     }
 
-    public native String initR2Core();
+    /** 初始化 r_core。返回 true 表示可用。 */
+    public static native boolean initR2Core();
 
-    public native String executeCommand(String command);
+    /** 执行一条 r2 命令，返回文本输出。 */
+    public static native String executeCommand(String cmd);
 
-    public native String openFile(String path);
+    /** 打开文件（桥内部先尝试 o，失败退 oo+）。 */
+    public static native boolean openFile(String path);
 
-    public native String closeR2Core();
+    /** 关闭并释放 r_core。 */
+    public static native void closeR2Core();
 
-    public native String testR2();
+    /** 自检：桥与 libr_core 是否联通。 */
+    public static native String testR2();
 }

@@ -111,6 +111,21 @@ public final class EngineUnpacker {
             String oldLd = pb.environment().get("LD_LIBRARY_PATH");
             pb.environment().put("LD_LIBRARY_PATH",
                     oldLd == null || oldLd.isEmpty() ? libPath : libPath + ":" + oldLd);
+
+            // _Unwind_Resume：blutter 全部 23 个版本都引用它，但它的 DT_NEEDED
+            // 里没有 libunwind.so——也就是说这个符号原本指望系统 /system/lib64
+            // 提供，Android 10+ 已经不再提供，于是报
+            // "CANNOT LINK EXECUTABLE ... cannot locate symbol _Unwind_Resume"。
+            //
+            // 解法：LD_PRELOAD 强制预加载 libcpp.so（它实为 Android 的 libunwind，
+            // 导出 18 个 _Unwind_* 含 _Unwind_Resume），符号就进了全局符号表。
+            // 不加进 LD_LIBRARY_PATH 是因为 linker 只加载 DT_NEEDED 列出的库，
+            // 光放同目录也没用——必须 PRELOAD。
+            File unwind = new File(exe.getParentFile(), "libcpp.so");
+            if (!unwind.exists()) unwind = new File(exe.getParentFile(), "libunwind.so");
+            if (unwind.exists()) {
+                pb.environment().put("LD_PRELOAD", unwind.getAbsolutePath());
+            }
             Process p = pb.start();
             java.io.InputStream is = p.getInputStream();
             java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
