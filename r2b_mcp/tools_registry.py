@@ -439,6 +439,9 @@ SPEC: List[tuple] = [
 
     ("Engine_R2_Deps", "检查 radare2 的 libr_*.so 是否齐全(bridge 依赖 libr_core.so)。", {"dir_hint": OPT}, []),
 
+    ("Frida_Channel", "Frida 双通道：status探测(gadget/server双通道就绪情况) / start拉起frida-server / script生成hook脚本 / gadget_config生成gadget配置。", {"action": OPT, "module": OPT, "addr": OPT, "offset": OPT, "tag": OPT, "script": OPT, "script_path": OPT}, []),
+    ("Patch_Session", "补丁编辑会话：list / open开会话快照 / commit提交版本 / undo / redo / rollback回初版 / apply写回 / audit查看历史。", {"action": OPT, "session": OPT, "session_id": OPT, "id": OPT, "target": OPT, "path": OPT, "file": OPT, "so": OPT, "note": OPT}, []),
+
     ("Blob_Read", "取回被截断的大结果(反汇编/内存dump等)：按 blob_id 分页读取完整内容。", {"blob_id": S, "limit": I, "offset": I}, ["blob_id"]),
 
     ("Engine_Inventory", "清点引擎资产：有什么/缺什么/去哪补完整版。", {}, []),

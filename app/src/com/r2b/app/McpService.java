@@ -28,6 +28,9 @@ import java.util.concurrent.Executors;
  *   tools/call    转发到 Python 后端；未配置则返回明确错误
  */
 public class McpService {
+    /** 日志缓冲：低价值消息进这里，不刷 UI。 */
+    private final StringBuilder logBuf = new StringBuilder();
+    String drainLog() { String r = logBuf.toString(); logBuf.setLength(0); return r; }
     private static final String TAG = "R2B_MCP";
     private static final String PROTOCOL = "2025-06-18";
 
@@ -270,6 +273,15 @@ public class McpService {
         }
     }
 
+    /** 低价值日志：只进内存缓冲，不刷到 UI。 */
+    private void logDebug(String m) {
+        if (m == null) return;
+        if (android.os.Build.VERSION.SDK_INT >= 17) {
+            android.util.Log.d("R2B_MCP", m);
+        }
+        if (logBuf != null) logBuf.append("\n").append(m);
+    }
+
     private void handle(Socket sock) {
         try {
             sock.setSoTimeout(15000);
@@ -351,7 +363,16 @@ public class McpService {
             os.write(out);
             os.flush();
         } catch (Exception e) {
-            log("处理请求异常: " + e.getMessage());
+            // 客户端提前断开（Broken pipe / Connection reset）是常态：
+            // 探测连接、客户端超时、切后台都会发生。它不是服务端故障，
+            // 不该刷成错误日志，否则日志区全是噪音盖掉真问题。
+            String m = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            if (m.contains("Broken pipe") || m.contains("Connection reset")
+                    || m.contains("ECONNRESET") || m.contains("EPIPE")) {
+                logDebug("客户端断开: " + m);
+            } else {
+                log("处理请求异常: " + m);
+            }
         } finally {
             try {
                 sock.close();

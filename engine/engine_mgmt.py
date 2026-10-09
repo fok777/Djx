@@ -277,3 +277,94 @@ def blob_read(blob_id: str = "", limit: int = 200_000, offset: int = 0):
         "next_offset": off + len(chunk) if off + len(chunk) < total else None,
         "content": chunk,
     }
+
+
+def frida_channel(action: str = "status", module: str = "", addr: str = "",
+                  tag: str = "", script: str = "", **kw):
+    """
+    Frida 双通道状态。
+
+    注意：本后端（Python 侧）不直接控制设备上的 frida，
+    它只给出通道判断与脚本生成；真正执行在安卓端 ToolExecutor。
+    """
+    import os
+    root = os.geteuid() == 0 if hasattr(os, "geteuid") else False
+    server = _which("frida-server")
+    gadget = ""
+    for c in ("assets/engine/frida/io_frida.so",
+              "assets/engine/frida/libfrida-gadget.so"):
+        if os.path.exists(c):
+            gadget = os.path.abspath(c)
+            break
+    if action in ("status", "capabilities"):
+        mode = "server" if server else ("gadget" if gadget else "none")
+        return {
+            "rooted": root,
+            "server_binary_found": bool(server),
+            "server_path": server or "",
+            "gadget_available": bool(gadget),
+            "gadget_path": gadget,
+            "mode": mode,
+            "rpc_supported": False,
+            "rpc_note": "frida-server 的 RPC 是私有二进制协议；"
+                        "本后端仅做通道判断与脚本生成，不伪装为已支持",
+            "android_note": "完整能力请以安卓端 Frida_Channel 为准",
+        }
+    if action == "script":
+        m = module or "libapp.so"
+        a = addr or "0x0"
+        t = tag or "hook"
+        return {"script": (
+            "const MOD = '%s';\nconst OFF = %s;\n"
+            "function attach() {\n"
+            "  const base = Module.findBaseAddress(MOD);\n"
+            "  if (!base) { setTimeout(attach, 300); return; }\n"
+            "  const target = base.add(OFF);\n"
+            "  Interceptor.attach(target, {\n"
+            "    onEnter(args) { console.log('[%s] enter ' + target); },\n"
+            "    onLeave(retval) { console.log('[%s] leave ' + retval); }\n"
+            "  });\n}\nattach();\n" % (m, a, t, t))}
+    return {"error": "未知 action: %s" % action,
+            "available": ["status", "capabilities", "script"]}
+
+
+def patch_session(action: str = "list", session: str = "", target: str = "",
+                  note: str = "", **kw):
+    """
+    补丁编辑会话（Python 侧的轻量实现：快照目录 + 版本链 + 历史）。
+    与安卓端 PatchSession 概念一致，便于两端行为对齐。
+    """
+    import os, shutil, time
+    base = os.path.join(os.path.expanduser("~"), ".r2b", "sessions")
+    os.makedirs(base, exist_ok=True)
+    if action == "list":
+        try:
+            return {"sessions": sorted(os.listdir(base))}
+        except Exception as e:
+            return {"error": str(e)}
+    if action == "open":
+        if not target or not os.path.isfile(target):
+            return {"error": "需要有效的 target"}
+        sid = "s%d" % int(time.time())
+        d = os.path.join(base, sid)
+        os.makedirs(d, exist_ok=True)
+        shutil.copy2(target, os.path.join(d, "base"))
+        shutil.copy2(target, os.path.join(d, "v0"))
+        with open(os.path.join(d, "history"), "w", encoding="utf-8") as f:
+            f.write("open %s | %s\n" % (os.path.abspath(target), note or ""))
+        return {"session_id": sid, "work_dir": d, "version": 0, "max_version": 0}
+    if not session:
+        return {"error": "需要 session"}
+    d = os.path.join(base, session)
+    if not os.path.isdir(d):
+        return {"error": "会话不存在: %s" % session}
+    if action in ("status", "audit"):
+        hist = []
+        hp = os.path.join(d, "history")
+        if os.path.exists(hp):
+            hist = [l.strip() for l in open(hp, encoding="utf-8") if l.strip()]
+        vs = [int(f[1:]) for f in os.listdir(d)
+              if f.startswith("v") and f[1:].isdigit()]
+        return {"session_id": session, "work_dir": d,
+                "max_version": max(vs) if vs else 0, "audit": hist}
+    return {"error": "未知 action: %s" % action}

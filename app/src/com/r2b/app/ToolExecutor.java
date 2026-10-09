@@ -96,6 +96,10 @@ public final class ToolExecutor {
     private void dispatch(String name, JSONObject a, JSONObject out) throws Exception {
         String n = name == null ? "" : name;
 
+        // ---------- Frida 双通道 / 补丁会话 ----------
+        if (n.startsWith("Frida_Channel")) { fridaChannel(a, out); return; }
+        if (n.startsWith("Patch_Session")) { patchSession(a, out); return; }
+
         // ---------- APK ----------
         if (n.equals("Apk_Open") || n.equals("Apk_Info") || n.equals("Apk_List")) {
             File apk = resolveApk(a);
@@ -485,6 +489,113 @@ public final class ToolExecutor {
         return "if ! command -v blutter >/dev/null 2>&1; then "
                 + "EXE=" + exe + "; else EXE=blutter; fi; "
                 + "$EXE -i '" + soPath + "' -o '" + outDir.getAbsolutePath() + "'";
+    }
+
+    /** Frida 双通道：探测 / 拉起 / 生成脚本 / 生成 gadget 配置。 */
+    private void fridaChannel(JSONObject a, JSONObject out) throws Exception {
+        String act = opt(a, "action");
+        if (act == null) act = "status";
+        if ("status".equals(act) || "capabilities".equals(act)) {
+            FridaChannel.Status st = FridaChannel.probe(ctx);
+            out.put("rooted", st.rooted);
+            out.put("server_binary_found", st.serverBinaryFound);
+            out.put("server_running", st.serverRunning);
+            out.put("gadget_available", st.gadgetAvailable);
+            out.put("mode", st.mode);
+            out.put("detail", st.detail);
+            if (st.serverPath != null) out.put("server_path", st.serverPath);
+            if (st.gadgetPath != null) out.put("gadget_path", st.gadgetPath);
+            if (st.error != null) out.put("error", st.error);
+            out.put("rpc_supported", false);
+            out.put("rpc_note", "与 frida-server 的 RPC 走私有二进制协议，"
+                    + "本版仅提供探测/拉起/脚本生成，不伪装为已支持");
+            return;
+        }
+        if ("start".equals(act)) {
+            out.put("result", FridaChannel.start(ctx));
+            out.put("running", FridaChannel.probe(ctx).serverRunning);
+            return;
+        }
+        if ("script".equals(act)) {
+            String js = FridaChannel.buildHookScript(opt(a, "module"),
+                    opt(a, "addr", "offset"), opt(a, "tag"));
+            File dir = new File(ctx.getFilesDir(), "frida");
+            if (!dir.exists()) dir.mkdirs();
+            File f = new File(dir, "hook_" + System.currentTimeMillis() + ".js");
+            java.io.FileOutputStream os = new java.io.FileOutputStream(f);
+            os.write(js.getBytes("UTF-8"));
+            os.close();
+            out.put("script_path", f.getAbsolutePath());
+            out.put("script", js);
+            return;
+        }
+        if ("gadget_config".equals(act)) {
+            File cfg = FridaChannel.writeGadgetConfig(ctx, opt(a, "script", "script_path"));
+            if (cfg == null) out.put("error", "写 gadget 配置失败");
+            else out.put("config_path", cfg.getAbsolutePath());
+            return;
+        }
+        out.put("error", "未知 action: " + act);
+        out.put("available", new JSONArray(java.util.Arrays.asList(
+                "status", "capabilities", "start", "script", "gadget_config")));
+    }
+
+    /** 补丁编辑会话：open / commit / undo / redo / rollback / apply / audit / list。 */
+    private void patchSession(JSONObject a, JSONObject out) throws Exception {
+        String act = opt(a, "action");
+        if (act == null) act = "list";
+        if ("list".equals(act)) {
+            out.put("sessions", new JSONArray(PatchSession.list(ctx)));
+            return;
+        }
+        String sid = opt(a, "session", "session_id", "id");
+        if ("open".equals(act)) {
+            String target = opt(a, "target", "path", "file", "so");
+            if (target == null) target = currentApk;
+            if (target == null) { out.put("error", "需要 target"); return; }
+            putInfo(out, PatchSession.open(ctx, target, opt(a, "note")));
+            return;
+        }
+        if (sid == null) { out.put("error", "需要 session"); return; }
+        PatchSession.Info info;
+        if ("commit".equals(act)) {
+            String src = opt(a, "file", "content", "path");
+            if (src == null) { out.put("error", "需要 file（新内容路径）"); return; }
+            putInfo(out, PatchSession.commit(ctx, sid, new File(src), opt(a, "note")));
+            return;
+        } else if ("undo".equals(act))      info = PatchSession.undo(ctx, sid);
+        else if ("redo".equals(act))        info = PatchSession.redo(ctx, sid);
+        else if ("rollback".equals(act))    info = PatchSession.rollback(ctx, sid);
+        else if ("apply".equals(act)) {
+            String t = opt(a, "target", "path");
+            if (t == null) { out.put("error", "需要 target"); return; }
+            out.put("result", PatchSession.apply(ctx, sid, t));
+            putInfo(out, PatchSession.load(ctx, sid));
+            return;
+        } else if ("status".equals(act) || "audit".equals(act)) {
+            putInfo(out, PatchSession.load(ctx, sid));
+            return;
+        } else {
+            out.put("error", "未知 action: " + act);
+            out.put("available", new JSONArray(java.util.Arrays.asList(
+                    "list", "open", "commit", "undo", "redo",
+                    "rollback", "apply", "audit", "status")));
+            return;
+        }
+        PatchSession.persistVersion(info);
+        putInfo(out, info);
+    }
+
+    private static void putInfo(JSONObject out, PatchSession.Info info) throws Exception {
+        if (info.error != null) out.put("error", info.error);
+        if (info.id != null) out.put("session_id", info.id);
+        if (info.workDir != null) out.put("work_dir", info.workDir.getAbsolutePath());
+        out.put("version", info.version);
+        out.put("max_version", info.maxVersion);
+        if (info.targetName != null) out.put("target", info.targetName);
+        File cur = info.workDir == null ? null : new File(info.workDir, "v" + info.version);
+        if (cur != null && cur.exists()) out.put("current_file", cur.getAbsolutePath());
+        out.put("audit", new JSONArray(info.audit));
     }
 
     private static String defaultR2Cmd(String tool) {
