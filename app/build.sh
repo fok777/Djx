@@ -16,7 +16,19 @@ if [ -z "$D8" ]; then
   done
 fi
 [ -z "$D8" ] && { echo "缺 d8，设 D8=/path/d8"; exit 3; }
-JC=$(ls /usr/lib/jvm/java-17*/bin/javac 2>/dev/null | head -1 || which javac)
+# javac：环境变量 JC > JAVA_HOME > PATH。
+# 原写法 `ls /usr/lib/jvm/java-17*/bin/javac | head -1 || which javac` 在
+# CI 上会拿到空值（|| 只兜住 head，head 永远成功），导致 ": command not found"。
+export JC="${JC:-}"
+if [ -z "$JC" ]; then
+  if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/javac" ]; then
+    JC="$JAVA_HOME/bin/javac"
+  else
+    JC=$(command -v javac 2>/dev/null || true)
+  fi
+fi
+[ -z "$JC" ] && { echo "缺 javac，设 JC=/path/to/javac 或正确设置 JAVA_HOME"; exit 3; }
+echo "javac = $JC"
 SP=r2bsecret
 rm -rf build; mkdir -p build/classes
 echo "[1/5] aapt2 compile + link（含 mipmap 图标）"
