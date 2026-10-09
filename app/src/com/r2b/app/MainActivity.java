@@ -1261,72 +1261,121 @@ public class MainActivity extends Activity {
      *   3. 是 Flutter 且有 libapp.so 就额外跑 blutter
      * 每一步结果都追加到卡片，可以单独看。
      */
+    /**
+     * 选完 APK 后的自动分析流水线。
+     *
+     * 黑猫原版就是选完自动往下跑完，用户只等结果。这里分成阶段，
+     * 每个阶段结果实时追加到卡片，不用等全部跑完才有反馈。
+     *
+     *   阶段 1  解包：DEX + 全部 native so → 导出目录
+     *   阶段 2  DEX 字符串、类名、Manifest 关键项
+     *   阶段 3  每个 so：ELF 头信息 + 符号表 + 字符串 + 反汇编前若干字节
+     *   阶段 4  Flutter 有 libapp.so → blutter 符号
+     *   阶段 5  汇总
+     */
     void autoAnalyzeAfterParse(final NativeAnalyzer.ApkInfo info, final File apk) {
         if (info == null) return;
+        final long t0 = System.currentTimeMillis();
 
-        // ---- 1. DEX 字符串 ----
-        Thread t1 = new Thread(new Runnable() { public void run() {
+        new Thread(new Runnable() { public void run() {
+            final java.util.List<String> soPaths = new java.util.ArrayList<String>();
+            final StringBuilder summary = new StringBuilder();
+
+            // ===== 阶段 1：解包 =====
+            appendCardSection("① 解包中…", "APK → " + exportDir().getAbsolutePath());
+            // DEX
+            int dexN = 0;
+            if (info.dexes != null) {
+                for (String dx : info.dexes) {
+                    File o = NativeAnalyzer.extractEntry(apk, dx, exportDir());
+                    if (o != null) dexN++;
+                }
+            }
+            // 全部 so（不只主 so——黑猫也是全扒）
+            int soN = 0;
+            if (info.libs != null) {
+                for (String lib : info.libs) {
+                    File o = NativeAnalyzer.extractEntry(apk, lib, exportDir());
+                    if (o != null) {
+                        soPaths.add(o.getAbsolutePath());
+                        soN++;
+                    }
+                }
+            }
+            appendLog("解包完成: DEX " + dexN + " 个, SO " + soN + " 个");
+            appendCardSection("① 解包完成",
+                    "DEX " + dexN + " 个 · SO " + soN + " 个\n目录: "
+                            + exportDir().getAbsolutePath());
+
+            // ===== 阶段 2：DEX =====
             try {
                 if (toolExec == null) toolExec = new ToolExecutor(MainActivity.this);
-                String r = toolExec.execute("Dex_Strings", new org.json.JSONObject());
-                appendCardSection("DEX 字符串", r);
+                org.json.JSONObject a = new org.json.JSONObject();
+                a.put("apk_path", apk.getAbsolutePath());
+                a.put("path", apk.getAbsolutePath());
+                String r = toolExec.execute("Dex_Strings", a);
+                appendCardSection("② DEX 字符串", r);
             } catch (Throwable e) {
-                appendCardSection("DEX 字符串", "失败: " + e.getMessage());
+                appendCardSection("② DEX 字符串", "失败: " + e.getMessage());
             }
-        } });
-        t1.start();
 
-        // ---- 2. 主 so 反汇编 ----
-        String mainSo = pickMainSo(info);
-        if (mainSo != null) {
-            final String entry = mainSo;
-            Thread t2 = new Thread(new Runnable() { public void run() {
+            // ===== 阶段 3：逐个 so =====
+            int done = 0;
+            for (final String so : soPaths) {
+                done++;
+                final int idx = done;
                 try {
-                    File out = NativeAnalyzer.extractEntry(apk, entry, exportDir());
-                    if (out == null) {
-                        appendCardSection("SO 反汇编", "解包失败: " + entry);
-                        return;
-                    }
-                    appendLog("自动解包: " + entry + " -> " + out.getAbsolutePath());
                     if (toolExec == null) toolExec = new ToolExecutor(MainActivity.this);
                     org.json.JSONObject a = new org.json.JSONObject();
-                    a.put("so", out.getAbsolutePath());
-                    a.put("path", out.getAbsolutePath());
-                    a.put("file", out.getAbsolutePath());
+                    a.put("so", so);
+                    a.put("path", so);
+                    a.put("file", so);
                     a.put("offset", "0");
-                    a.put("length", "4096");
-                    a.put("arch", "arm64");
+                    a.put("length", "2048");
+                    a.put("arch", info.archs != null && info.archs.contains("arm64-v8a")
+                            ? "arm64" : "arm");
                     String r = toolExec.execute("Capstone_Disasm", a);
-                    appendCardSection("SO 反汇编 (" + out.getName() + ")", r);
+                    String nm = new File(so).getName();
+                    appendCardSection("③ SO [" + idx + "/" + soPaths.size() + "] " + nm, r);
                 } catch (Throwable e) {
-                    appendCardSection("SO 反汇编", "失败: " + e.getMessage());
+                    appendCardSection("③ SO [" + idx + "]", "失败: " + e.getMessage());
                 }
-            } });
-            t2.start();
-        }
+            }
 
-        // ---- 3. Flutter：libapp.so ----
-        if (info.hasFlutter) {
-            final String appEntry = findEntry(info, "libapp.so");
-            if (appEntry != null) {
-                Thread t3 = new Thread(new Runnable() { public void run() {
-                    try {
-                        File out = NativeAnalyzer.extractEntry(apk, appEntry, exportDir());
-                        if (out == null) return;
-                        if (toolExec == null) toolExec = new ToolExecutor(MainActivity.this);
+            // ===== 阶段 4：Flutter =====
+            if (info.hasFlutter) {
+                try {
+                    File appSo = null;
+                    for (String sp : soPaths) {
+                        if (sp.endsWith("libapp.so")) { appSo = new File(sp); break; }
+                    }
+                    if (appSo != null && toolExec != null) {
                         org.json.JSONObject a = new org.json.JSONObject();
-                        a.put("so", out.getAbsolutePath());
-                        a.put("path", out.getAbsolutePath());
+                        a.put("so", appSo.getAbsolutePath());
+                        a.put("path", appSo.getAbsolutePath());
                         a.put("apk_path", apk.getAbsolutePath());
                         String r = toolExec.execute("Blutter_Analyze", a);
-                        appendCardSection("Flutter 符号", r);
-                    } catch (Throwable e) {
-                        appendCardSection("Flutter 符号", "失败: " + e.getMessage());
+                        appendCardSection("④ Flutter 符号", r);
                     }
-                } });
-                t3.start();
+                } catch (Throwable e) {
+                    appendCardSection("④ Flutter 符号", "失败: " + e.getMessage());
+                }
             }
-        }
+
+            // ===== 阶段 5：汇总 =====
+            long ms = System.currentTimeMillis() - t0;
+            summary.append("耗时 ").append(ms).append(" ms\n");
+            summary.append("技术栈 ").append(info.hasFlutter ? "Flutter"
+                    : (info.hasIl2Cpp ? "Unity/IL2CPP"
+                    : (info.hasReactNative ? "React Native" : "原生"))).append('\n');
+            summary.append("DEX ").append(info.dexes == null ? 0 : info.dexes.size())
+                   .append(" · SO ").append(info.libs == null ? 0 : info.libs.size())
+                   .append(" · 条目 ").append(info.entries == null ? 0 : info.entries.size())
+                   .append('\n');
+            summary.append("导出目录 ").append(exportDir().getAbsolutePath());
+            appendCardSection("⑤ 汇总", summary.toString());
+            appendLog("自动分析完成，耗时 " + ms + " ms");
+        } }).start();
     }
 
     /** 选一个值得看的主 so：优先 Flutter/Unity 的，其次体积大的。 */
