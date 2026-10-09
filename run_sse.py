@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from r2b_mcp.server import handle, build_tools, PROTOCOL_VERSION, _status
+from r2b_mcp import webui
 
 
 def _cors(h):
@@ -41,8 +42,42 @@ class H(BaseHTTPRequestHandler):
         _cors(self)
         self.end_headers()
 
+    def _html(self, text):
+        body = text.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        _cors(self)
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
-        if self.path.rstrip("/") in ("/mcp", ""):
+        p = self.path.split("?")[0].rstrip("/")
+        q = self.path.split("?")[1] if "?" in self.path else ""
+
+        # ---- 内置 Web 控制台 ----
+        if p in ("", "/", "/ui", "/index.html"):
+            self._html(webui.render_html())
+            return
+        if p == "/api/categories":
+            try:
+                self._json(webui.categories_payload())
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+        if p == "/api/tools":
+            cat = ""
+            for kv in q.split("&"):
+                if kv.startswith("cat="):
+                    cat = kv[4:]
+            try:
+                self._json(webui.tools_payload(cat))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        if p in ("/mcp", ""):
             self._json({"name": "Radare2Blutter MCP (R2B)",
                         "protocolVersion": PROTOCOL_VERSION,
                         "tools": len(build_tools()), "status": _status(),

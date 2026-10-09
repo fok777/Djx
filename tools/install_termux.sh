@@ -20,7 +20,7 @@ say() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
 warn() { printf '\033[1;33m[!] %s\033[0m\n' "$1"; }
 ok() { printf '\033[1;32m[✓] %s\033[0m\n' "$1"; }
 
-say "0/6 环境检查"
+say "0/7 环境检查"
 if [ ! -d "$PREFIX" ]; then
   echo "这不像 Termux 环境（找不到 $PREFIX）。"
   echo "请在 Termux App 里执行本脚本。"
@@ -29,14 +29,14 @@ fi
 ok "Termux 环境确认"
 echo "  架构: $(uname -m)"
 
-say "1/6 安装系统包"
+say "1/7 安装系统包"
 export DEBIAN_FRONTEND=noninteractive
 pkg upgrade -y -o Dpkg::Options::=--force-confnew 2>&1 | tail -3 || true
 pkg install -y python git wget curl unzip xz-utils 2>&1 | tail -5
 ok "python / git / wget 已装"
 
 # radare2：Termux 源里可能没有，装不上就从官方 release 取
-say "2/6 radare2（影响 R2_* 94 个 + Nav_* 23 个工具）"
+say "2/7 radare2（影响 R2_* 94 个 + Nav_* 23 个工具）"
 if pkg install -y radare2 2>&1 | tail -2; then
   if command -v r2 >/dev/null 2>&1; then
     ok "radare2 已装: $(r2 -v 2>/dev/null | head -1)"
@@ -69,7 +69,7 @@ if ! command -v r2 >/dev/null 2>&1; then
   fi
 fi
 
-say "3/6 部署 R2B 源码"
+say "3/7 部署 R2B 源码"
 mkdir -p "$R2B_DIR"
 cd "$R2B_DIR"
 # 如果当前目录下就是源码（比如从手机存储拷过来的），直接复制
@@ -87,14 +87,27 @@ else
 fi
 [ -f "$R2B_DIR/run_sse.py" ] && ok "源码就绪: $R2B_DIR" || warn "源码缺失，请手动放置"
 
-say "4/6 安装 Python 依赖"
+say "4/7 安装 Python 依赖"
 cd "$R2B_DIR"
 python3 -m pip install --upgrade pip 2>&1 | tail -1 || true
 # mitmproxy 在 Termux 上常编译失败，装不上不影响其它工具
 python3 -m pip install pyelftools capstone 2>&1 | tail -3
 ok "pyelftools / capstone 已装"
 
-say "5/6 引擎资产"
+# unidbg 是 JVM jar。之前判断"安卓是 ART 跑不了"——那是 App 进程里的限制，
+# Termux 里装上 openjdk 就能用 java 命令真跑，Ub_* 42 个工具全部可用。
+say "5/7 Java 运行时（Unidbg 需要）"
+if command -v java >/dev/null 2>&1; then
+  ok "java 已装: $(java -version 2>&1 | head -1)"
+else
+  if pkg install -y openjdk-17 2>&1 | tail -3; then
+    command -v java >/dev/null 2>&1 && ok "openjdk 装好了" || warn "openjdk 安装未完成"
+  else
+    warn "openjdk 安装失败，Ub_* 42 个工具将不可用"
+  fi
+fi
+
+say "6/7 引擎资产"
 mkdir -p "$ENGINE_DIR"/{blutter,frida,unidbg,radare2}
 # 引擎 so/jar 体积大没进 git，优先从手机存储拷贝
 for src in /sdcard/Download/r2b_engines /sdcard/r2b_engines "$HOME/r2b_engines"; do
@@ -102,6 +115,13 @@ for src in /sdcard/Download/r2b_engines /sdcard/r2b_engines "$HOME/r2b_engines";
     cp -r "$src"/. "$ENGINE_DIR"/ 2>/dev/null && ok "已从 $src 复制引擎" && break
   fi
 done
+# unidbg jar：Ub_* 42 个工具的本体（unidbg-android.jar / unidbg-unicorn2.jar）
+if [ -f "$ENGINE_DIR/unidbg/unidbg-android.jar" ] && command -v java >/dev/null 2>&1; then
+  ok "unidbg jar 就绪，java 可用 → Ub_* 工具可用"
+else
+  warn "unidbg jar 或 java 缺失 → Ub_* 42 个工具不可用"
+fi
+
 # frida-server（需 root 才用得上）
 if command -v frida >/dev/null 2>&1; then
   ok "frida 已可用"
@@ -114,7 +134,7 @@ for d in blutter frida unidbg radare2; do
   printf '    %-10s %s 个文件\n' "$d" "$n"
 done
 
-say "6/6 自检"
+say "7/7 自检"
 cd "$R2B_DIR"
 python3 -m r2b_mcp.audit 2>&1 | tail -15 || warn "自检未完全通过（不影响多数工具）"
 
@@ -122,10 +142,13 @@ cat <<EOF
 
 $(printf '\033[1;32m')部署完成$(printf '\033[0m')
 
-启动 MCP 服务：
+启动服务：
   cd ~/r2b && python3 run_sse.py
 
-然后 AI 客户端连接：
+手机浏览器打开（内置可视化控制台，可点工具直接执行）：
+  http://127.0.0.1:5051/
+
+AI 客户端连接：
   http://$(ip route get 1.2.3.4 2>/dev/null | awk '{print $7; exit}' || echo 127.0.0.1):5051/mcp
 
 常用：
