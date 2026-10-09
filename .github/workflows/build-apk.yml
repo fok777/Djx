@@ -79,20 +79,32 @@ jobs:
           fi
           ls "$GITHUB_WORKSPACE/assets/engine/radare2/" | head -30
 
-      # frida-server 49.6MB 超过 GitHub blob API 单文件上限，不入仓库，
-      # 构建时从官方 release 取（需 root 才用得上，gadget 已在仓库里）。
+      # frida-server 解压后约 50MB，超过 GitHub blob API 单文件上限，
+      # 因此不进 git 仓库，构建时从官方 release 取（xz 压缩包 14.9MB）。
       - name: Fetch frida-server
         continue-on-error: true
         run: |
           set -x
           VER=17.5.1
+          DEST="$GITHUB_WORKSPACE/assets/engine/frida/frida-server"
           URL=https://github.com/frida/frida/releases/download/$VER/frida-server-$VER-android-arm64.xz
           cd /tmp
-          curl -sSL -o fs.xz "$URL" || { echo "::warning::frida-server 下载失败，跳过"; exit 0; }
-          ls -lh fs.xz
-          xz -d -f fs.xz 2>/dev/null || { echo "::warning::xz 解压失败"; exit 0; }
-          cp frida-server-$VER-android-arm64 "$GITHUB_WORKSPACE/assets/engine/frida/frida-server" 2>/dev/null || true
-          ls -lh "$GITHUB_WORKSPACE/assets/engine/frida/" || true
+          curl -fsSL -o fs.xz "$URL"
+          echo "::notice::frida-xz-size=$(stat -c%s fs.xz 2>/dev/null || echo 0)"
+          if command -v xz >/dev/null; then
+            xz -dk fs.xz || xz -d -f fs.xz || true
+          else
+            python3 -c "import lzma,shutil;shutil.copyfileobj(lzma.open('fs.xz'),open('fs.bin','wb'))" || true
+            mv fs.bin frida-server-$VER-android-arm64 2>/dev/null || true
+          fi
+          ls -lh /tmp | head -20
+          SRC=$(ls frida-server-$VER-android-arm64 2>/dev/null || echo "")
+          if [ -n "$SRC" ]; then
+            cp "$SRC" "$DEST"
+            echo "::notice::frida-server-installed=$(stat -c%s "$DEST")"
+          else
+            echo "::warning::frida-server 下载或解压失败，该引擎将缺失"
+          fi
 
       - name: Build Release APK (not debuggable)
         working-directory: app

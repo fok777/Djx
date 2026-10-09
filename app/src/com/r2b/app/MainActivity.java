@@ -39,6 +39,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        // 双保险：直接把窗口底色刷成浅色，避免任何深色模式残留
+        getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0xFFF5F7FA));
         int bg = 0xFFF5F7FA, card = 0xFFFFFFFF, txt = 0xFF202124, sub = 0xFF5F6368,
             blue = 0xFF1A73E8, green = 0xFF188038;
         LinearLayout root = new LinearLayout(this);
@@ -67,8 +69,8 @@ public class MainActivity extends Activity {
         LinearLayout btnRow = new LinearLayout(this);
         Button remote = pill("R2B MCP 远程服务", 0xFFBDC7D5, txt);
         Button pick = pill("选择APK文件", 0xFF1A73E8, 0xFFFFFFFF);
-        btnRow.addView(remote, weight(-1));
-        btnRow.addView(pick, weight(-1));
+        btnRow.addView(remote, weight(1f));
+        btnRow.addView(pick, weight(1f));
         mainView.addView(btnRow, gap());
         fileBox = new TextView(this);
         fileBox.setText("未选择文件");
@@ -99,7 +101,7 @@ public class MainActivity extends Activity {
         ctlRow.addView(statusText);
         svcView.addView(ctlRow, gap());
         svcView.addView(svcRow("本地", "http://127.0.0.1:5051/mcp"), gap());
-        svcView.addView(svcRow("局域网", "http://192.168.2.48:5051/mcp"), gap());
+        svcView.addView(svcRow("局域网", "http://" + lanIp() + ":5051/mcp"), gap());
         TextView rootOK = tv(rootStateText(), 13, hasRoot() ? green : 0xFF8A929E, false);
         svcView.addView(rootOK, gap());
         LinearLayout logBtnRow = new LinearLayout(this);
@@ -136,6 +138,8 @@ public class MainActivity extends Activity {
         copyLog.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { copyAll(); } });
 
         ScrollView sv = new ScrollView(this);
+        sv.setBackgroundColor(bg);
+        sv.setFillViewport(true);   // 内容不足一屏时也铺满，否则露出黑色 window 背景
         sv.addView(root);
         setContentView(sv);
     }
@@ -534,8 +538,11 @@ public class MainActivity extends Activity {
         p.bottomMargin = dp(6);
         return p;
     }
-    LinearLayout.LayoutParams weight(int w) {
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -1, w);
+    // weight 必须为正数：LinearLayout 在 totalWeight<=0 时不分配剩余空间，
+    // 而 width=0 的子 View 就只能得到 0 宽度（按钮会整个消失）。
+    // 高度用 WRAP_CONTENT(-2)，不能用 MATCH_PARENT(-1)。
+    LinearLayout.LayoutParams weight(float w) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, w);
         p.rightMargin = dp(8);
         return p;
     }

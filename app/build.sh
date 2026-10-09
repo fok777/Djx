@@ -74,7 +74,12 @@ for eng in sorted(os.listdir(engine_src)):
                 continue
             full = os.path.join(root, fn)
             rel = os.path.relpath(full, engine_src).replace(os.sep, '/')
-            zo.write(full, 'assets/engine/' + rel)
+            # 引擎二进制用 STORED（不压缩）：释放时无需解压，190MB 明显更快
+            zi = zipfile.ZipInfo('assets/engine/' + rel, date_time=(2024, 1, 1, 0, 0, 0))
+            zi.compress_type = zipfile.ZIP_STORED
+            zi.external_attr = 0o644 << 16
+            with open(full, 'rb') as fh:
+                zo.writestr(zi, fh.read())
             n_all += 1
             if fn.endswith('.so'):
                 n_so += 1
@@ -83,6 +88,24 @@ print(f'引擎资产: {n_all} 个文件（其中 .so {n_so} 个）')
 print('tools_data:', 'assets/tools_data.json' in zipfile.ZipFile('build/r2b.apk').namelist())
 PYCODE
 echo "--- APK 体积 ---"; ls -lh build/r2b.apk | awk '{print $5, $9}'
+python3 - <<'PYCODE'
+import zipfile, collections
+z = zipfile.ZipFile('build/r2b.apk')
+names = z.namelist()
+c = collections.Counter()
+for n in names:
+    if n.startswith('assets/engine/'):
+        p = n.split('/')
+        if len(p) >= 4:
+            c[p[2]] += 1
+print('::notice::apk-entries=%d' % len(names))
+for k, v in sorted(c.items()):
+    print('::notice::apk-engine-%s=%d' % (k, v))
+print('::notice::apk-so-total=%d' % sum(1 for n in names if n.endswith('.so')))
+raw = sum(i.file_size for i in z.infolist())
+comp = sum(i.compress_size for i in z.infolist())
+print('::notice::apk-raw=%.1fMB compressed=%.1fMB' % (raw/1048576, comp/1048576))
+PYCODE
 
 echo "[5/5] 签名 V1"; [ -f keystore.jks ] || keytool -genkeypair -keystore keystore.jks -alias r2b \
   -keyalg RSA -keysize 2048 -validity 3650 -storepass $SP -keypass $SP -dname "CN=R2B,O=R2B,C=US" 2>/dev/null
