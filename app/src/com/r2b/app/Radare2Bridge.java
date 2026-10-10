@@ -36,7 +36,12 @@ public final class Radare2Bridge {
         "libcapstone.so",
         "libkeystone.so",
         "libr_util.so",
-        "libunicorn.so",
+        // 注意：libunicorn.so / libunicorn_java.so **不能**放在这里。
+        // 崩溃日志实证：它们的 JNI_OnLoad 会返回 JNI_ERR
+        // （"JNI_ERR returned from JNI_OnLoad in .../libunicorn.so"），
+        // 因为这两个是 unidbg 的库，不属于 radare2 依赖链，
+        // 强行加载会失败并让"已加载"数永远少 2 个。
+        // unidbg 走自己的 DexClassLoader 通道，与这里无关。
         "libdemumble.so",
         "libr_bp.so",
         "libr_config.so",
@@ -47,7 +52,6 @@ public final class Radare2Bridge {
         "libr_reg.so",
         "libr_socket.so",
         "libr_syscall.so",
-        "libunicorn_java.so",
         "libr_esil.so",
         "libr_fs.so",
         "libr_io.so",
@@ -89,6 +93,54 @@ public final class Radare2Bridge {
     }
 
     private static volatile boolean loaded = false;
+
+    /**
+     * 总开关：是否允许真正调用 radare2 的 native 方法。
+     *
+     * 为什么需要它：radare2 是进程内 dlopen 的，它一旦 SIGSEGV，
+     * 整个 App 进程立刻死——Java 的 try/catch 完全拦不住
+     * （native 崩溃不走 Java 异常体系）。
+     * 实测就是：服务起来 1.5 秒后 SIGSEGV → Force finishing activity。
+     *
+     * 所以默认**只加载 so、不调 native**。要真用 radare2 必须
+     * 在设置里显式打开，并且用手动"测试 radare2"单独验证——
+     * 崩了也只是那一次，不会拖垮整个服务。
+     */
+    private static volatile boolean nativeEnabled = false;
+
+    public static void setNativeEnabled(boolean on) { nativeEnabled = on; }
+    public static boolean isNativeEnabled() { return nativeEnabled; }
+
+    /** 所有进 native 的调用都必须先过这个闸门。 */
+    private static String gate() {
+        if (!loaded) return "radare2 未加载: " + loadError;
+        if (!nativeEnabled) {
+            return "radare2 native 已禁用（设置里可开启）。\n"
+                    + "原因：进程内崩溃无法用 try/catch 拦截，默认关闭以保证服务不闪退。";
+        }
+        return null;
+    }
+
+    /**
+     * 参数校验——本次闪退的根治点。
+     *
+     * 崩溃栈实证：
+     *   #00 r_cons_push+24          (libr_cons.so)
+     *   #01 core_cmd_str_context    (libr_core.so)
+     *   #02 r_core_cmd_str          (libr_core.so)
+     *   #03 Java_..._executeCommand (libr2aibridge.so)
+     * 崩溃前日志：Executing command: (null)
+     *
+     * Java 把 null 传进 native → 桥用 %s 打出 "(null)" →
+     * 把 NULL 交给 r_core_cmd_str → r_cons_push 解引用 → SIGSEGV。
+     * native 崩溃不走 Java 异常，try/catch 拦不住，进程直接死。
+     * 所以 null / 空串一律在 Java 侧挡掉，绝不进 native。
+     */
+    private static String checkCmd(String command) {
+        if (command == null) return "命令为 null：拒绝传给 native（否则必 SIGSEGV）";
+        if (command.trim().isEmpty()) return "命令为空串：拒绝传给 native";
+        return null;
+    }
     private static volatile String loadError = null;
     private static final Object LOCK = new Object();
 
@@ -165,10 +217,9 @@ public final class Radare2Bridge {
                 loaded = true;
                 loadError = null;
                 Log.i(TAG, "radare2 加载完成，已加载 " + rep.loaded.size() + " 个库");
-                // 跑初始化配置：不设 scr.color=0 的话输出全是 ANSI 转义码
-                for (String initCmd : INIT_CMDS) {
-                    try { cmd(initCmd); } catch (Throwable ignored) {}
-                }
+                // 注意：这里**不再**自动跑 initR2Core / INIT_CMDS。
+                // 那会立刻进 native，若 radare2 内部不稳就整个进程 SIGSEGV。
+                // 初始化推迟到用户手动点"测试 radare2"、且开关打开时才做。
                 Log.i(TAG, "r2 初始化命令已执行");
             } catch (Throwable t) {
                 rep.error = "JNI 桥不可用: " + t.getClass().getSimpleName()
@@ -187,13 +238,14 @@ public final class Radare2Bridge {
      * 返回 String；任何失败都变成带错误说明的字符串，不抛异常。
      */
     public static String cmd(String command) {
-        if (!loaded) return "radare2 未加载: " + loadError;
+        String g = gate(); if (g != null) return g;
+        String bad = checkCmd(command); if (bad != null) return bad;
         try {
             Class<?> k = Class.forName("com.r2aibridge.R2Core");
             java.lang.reflect.Method init = k.getMethod("initR2Core");
             Object r = init.invoke(null);
             java.lang.reflect.Method exec = k.getMethod("executeCommand", String.class);
-            Object out = exec.invoke(null, command);
+            Object out = exec.invoke(null, command == null ? "" : command.trim());
             return String.valueOf(out);
         } catch (ClassNotFoundException e) {
             return "R2Core 类不存在（桥未打进包）";
@@ -214,8 +266,9 @@ public final class Radare2Bridge {
      * 这里同样做两次尝试，并把每次的结果都带回来便于排查。
      */
     public static String open(String path) {
+        String g = gate(); if (g != null) return g;
         if (!loaded) return "radare2 未加载: " + loadError;
-        if (path == null) return "路径为空";
+        if (path == null || path.trim().isEmpty()) return "路径为空：拒绝传给 native";
         File f = new File(path);
         if (!f.exists()) return "文件不存在: " + path;
         try {
@@ -238,9 +291,37 @@ public final class Radare2Bridge {
         }
     }
 
+    /**
+     * 显式初始化 + 跑 INIT_CMDS。
+     * 这是**唯一**会主动进 native 做初始化的入口，且必须先开总开关。
+     * 放在手动按钮后面：万一 radare2 还是崩，也只崩这一次，
+     * 不会在服务启动时连带整个 App 一起死。
+     */
+    public static String initNow() {
+        String g = gate(); if (g != null) return g;
+        StringBuilder sb = new StringBuilder();
+        try {
+            Class<?> k = Class.forName("com.r2aibridge.R2Core");
+            Object r = k.getMethod("initR2Core").invoke(null);
+            sb.append("initR2Core=").append(r);
+            for (String c : INIT_CMDS) {
+                String bad = checkCmd(c);
+                if (bad != null) {
+                    sb.append("\n").append(c).append(" -> 跳过: ").append(bad);
+                    continue;
+                }
+                sb.append("\n").append(c).append(" -> ").append(cmd(c));
+            }
+        } catch (Throwable t) {
+            sb.append("\n初始化失败: ").append(t.getClass().getSimpleName())
+              .append(": ").append(t.getMessage());
+        }
+        return sb.toString();
+    }
+
     /** 自检：跑 testR2 看桥通不通。 */
     public static String test() {
-        if (!loaded) return "radare2 未加载: " + loadError;
+        String g = gate(); if (g != null) return g;
         try {
             Class<?> k = Class.forName("com.r2aibridge.R2Core");
             k.getMethod("initR2Core").invoke(null);

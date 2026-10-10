@@ -171,6 +171,14 @@ public class MainActivity extends Activity {
             autoStartMcp();
         }
 
+        // radare2 总开关：默认关。
+        // 崩溃栈实证 executeCommand 传 null 会在 r_cons_push 里 SIGSEGV，
+        // 而 native 崩溃无法用 try/catch 拦截，会带崩整个进程。
+        // 所以每次启动都按保存值恢复，绝不默认开启。
+        Radare2Bridge.setNativeEnabled(
+                android.preference.PreferenceManager.getDefaultSharedPreferences(this)
+                        .getBoolean("r2_native", false));
+
         // ===== 按钮事件 =====
         remote.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
             mainView.setVisibility(View.GONE); svcView.setVisibility(View.VISIBLE);
@@ -842,6 +850,17 @@ public class MainActivity extends Activity {
                 .getBoolean("auto_start_service", true));
         box.addView(cb);
 
+        final android.widget.CheckBox cbR2 = new android.widget.CheckBox(this);
+        cbR2.setText("启用 radare2 原生引擎（默认关：崩溃会带崩整个进程）");
+        cbR2.setTextSize(13);
+        cbR2.setChecked(android.preference.PreferenceManager
+                .getDefaultSharedPreferences(this)
+                .getBoolean("r2_native", false));
+        box.addView(cbR2);
+
+        Button testR2 = pill("测试 radare2（会进 native，可能闪退）", 0xFFEEF1F5, 0xFFD93025);
+        box.addView(testR2, gap());
+
         final android.widget.CheckBox cbRoot = new android.widget.CheckBox(this);
         cbRoot.setText("尝试以 Root 拉起 frida-server");
         cbRoot.setTextSize(13);
@@ -852,6 +871,21 @@ public class MainActivity extends Activity {
 
         Button save = pill("保存配置", 0xFF188038, 0xFFFFFFFF);
         box.addView(save, gap());
+
+        testR2.setOnClickListener(new View.OnClickListener() {
+            public void onClick(View v) {
+                Radare2Bridge.setNativeEnabled(true);
+                appendLog("手动测试 radare2（已临时开启 native）…");
+                new Thread(new Runnable() { public void run() {
+                    String r = Radare2Bridge.initNow();
+                    final String rr = r;
+                    ui.post(new Runnable() { public void run() {
+                        appendLog("radare2 测试:\n" + rr);
+                        showLogViewDialog(rr, "radare2 测试结果");
+                    } });
+                } }).start();
+            }
+        });
 
         android.widget.ScrollView sv = new android.widget.ScrollView(this);
         sv.addView(box);
@@ -865,7 +899,9 @@ public class MainActivity extends Activity {
                         .putString("export_dir", curPath[0])
                         .putBoolean("auto_start_service", cb.isChecked())
                         .putBoolean("auto_frida", cbRoot.isChecked())
+                        .putBoolean("r2_native", cbR2.isChecked())
                         .apply();
+                Radare2Bridge.setNativeEnabled(cbR2.isChecked());
                 toast("配置已保存");
                 appendLog("导出路径: " + curPath[0]);
                 // 勾了自动启动且当前没跑，立刻起
