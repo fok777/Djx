@@ -89,6 +89,9 @@ public final class Radare2Bridge {
     }
 
     private static volatile boolean loaded = false;
+    /** initR2Core 是否已成功；配合 ensureInit 使用。 */
+    private static volatile boolean initDone = false;
+    private static String initError = null;
     private static volatile String loadError = null;
     private static final Object LOCK = new Object();
 
@@ -188,6 +191,42 @@ public final class Radare2Bridge {
      * 执行一条 r2 命令。
      * 返回 String；任何失败都变成带错误说明的字符串，不抛异常。
      */
+    /**
+     * 确保 r_core 已初始化。返回 null 表示可用；否则返回错误说明，
+     * 此时绝不能再进 native。
+     *
+     * 之前 cmd() 每次都无条件 initR2Core() 且从不检查返回值：
+     *   · 反复创建 r_core，旧的直接泄漏
+     *   · initR2Core 返回 false 时 r_core 为 NULL，仍照样 executeCommand
+     *     → r_core_cmd_str(NULL,...) → core_cmd_str_context
+     *     → r_cons_push 解引用 → SIGSEGV 带崩整个进程
+     * （与崩溃栈完全一致）
+     * 现在只 init 一次，失败即拒绝。
+     */
+    private static String ensureInit() {
+        if (initDone) return null;
+        try {
+            Class<?> k = Class.forName("com.r2aibridge.R2Core");
+            Object r = k.getMethod("initR2Core").invoke(null);
+            if (!Boolean.TRUE.equals(r)) {
+                initError = "initR2Core 返回 false（r_core 为 NULL）";
+                return initError;
+            }
+            initDone = true;
+            // core 有效后才跑初始化配置，这时才是安全的
+            for (String c : INIT_CMDS) {
+                try {
+                    k.getMethod("executeCommand", String.class).invoke(null, c);
+                } catch (Throwable ignored) {}
+            }
+            return null;
+        } catch (Throwable t) {
+            initError = "initR2Core 失败: " + t.getClass().getSimpleName()
+                    + ": " + t.getMessage();
+            return initError;
+        }
+    }
+
     public static String cmd(String command) {
         if (!loaded) return "radare2 未加载: " + loadError;
         // 传 null 给 r_core_cmd_str 必崩（见上方崩溃栈），Java 侧直接挡掉
@@ -196,8 +235,8 @@ public final class Radare2Bridge {
         }
         try {
             Class<?> k = Class.forName("com.r2aibridge.R2Core");
-            java.lang.reflect.Method init = k.getMethod("initR2Core");
-            Object r = init.invoke(null);
+            String ie = ensureInit();
+            if (ie != null) return "radare2 未就绪，拒绝执行（避免 NULL core 崩溃）: " + ie;
             java.lang.reflect.Method exec = k.getMethod("executeCommand", String.class);
             Object out = exec.invoke(null, command == null ? "" : command.trim());
             return String.valueOf(out);
@@ -221,13 +260,14 @@ public final class Radare2Bridge {
      */
     public static String open(String path) {
         if (!loaded) return "radare2 未加载: " + loadError;
-        if (path == null) return "路径为空";
+        if (path == null || path.trim().isEmpty()) return "路径为空";
         File f = new File(path);
         if (!f.exists()) return "文件不存在: " + path;
+        String ie = ensureInit();
+        if (ie != null) return "radare2 未就绪，拒绝打开（避免 NULL core 崩溃）: " + ie;
         try {
             Class<?> k = Class.forName("com.r2aibridge.R2Core");
-            k.getMethod("initR2Core").invoke(null);
-            Object out = k.getMethod("openFile", String.class).invoke(null, path);
+            Object out = k.getMethod("openFile", String.class).invoke(null, path.trim());
             String r = String.valueOf(out);
             // openFile 返回 false / 错误时，退而用 oo+ 重新打开
             if (r == null || "false".equalsIgnoreCase(r.trim())
