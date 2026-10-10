@@ -213,12 +213,11 @@ public final class Radare2Bridge {
                 return initError;
             }
             initDone = true;
-            // core 有效后才跑初始化配置，这时才是安全的
-            for (String c : INIT_CMDS) {
-                try {
-                    k.getMethod("executeCommand", String.class).invoke(null, c);
-                } catch (Throwable ignored) {}
-            }
+            // 注意：这里**不**跑 INIT_CMDS。
+            // 2.9.3 的崩溃现场就是服务启动时自动执行这 5 条命令，
+            // 其中一条在 native 里变成 null → r_cons_push SIGSEGV。
+            // 即便移到 init 之后执行，风险依旧（同一次 native 调用链）。
+            // 先保证能用；scr.color 等配置留到确认稳定后再加。
             return null;
         } catch (Throwable t) {
             initError = "initR2Core 失败: " + t.getClass().getSimpleName()
