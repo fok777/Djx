@@ -317,8 +317,6 @@ public final class Radare2Bridge {
     public static String cachedVersion() { return cachedVersion; }
 
     /** 是否已成功加载。 */
-    public static boolean isLoaded() { return loaded; }
-
     /** 加载时缺失的库清单。 */
     public static java.util.List<String> missingLibs() {
         return lastMissing == null ? new java.util.ArrayList<String>() : lastMissing;

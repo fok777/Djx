@@ -740,7 +740,7 @@ public final class ToolExecutor {
         if (n.startsWith("Project_")) {
             File dir = new File(ctx.getFilesDir(), "projects");
             if (!dir.exists() && !dir.mkdirs()) dir = ctx.getFilesDir();
-            String name = opt(a, "name", "project", "id");
+            String projName = opt(a, "name", "project", "id");
             if (n.equals("Project_List")) {
                 JSONArray arr = new JSONArray();
                 File[] fs = dir.listFiles();
@@ -753,9 +753,9 @@ public final class ToolExecutor {
                 return;
             }
             if (n.equals("Project_Save") || n.equals("Project_Export")) {
-                if (name == null) { out.put("error", "需要 name"); return; }
+                if (projName == null) { out.put("error", "需要 name"); return; }
                 try {
-                    File f = new File(dir, name + ".json");
+                    File f = new File(dir, projName + ".json");
                     java.io.FileOutputStream os = new java.io.FileOutputStream(f);
                     os.write(a.toString(2).getBytes("UTF-8"));
                     os.close();
@@ -764,16 +764,16 @@ public final class ToolExecutor {
                 return;
             }
             if (n.equals("Project_Load")) {
-                if (name == null) { out.put("error", "需要 name"); return; }
-                File f = new File(dir, name + ".json");
-                if (!f.isFile()) { out.put("error", "项目不存在: " + name); return; }
+                if (projName == null) { out.put("error", "需要 name"); return; }
+                File f = new File(dir, projName + ".json");
+                if (!f.isFile()) { out.put("error", "项目不存在: " + projName); return; }
                 byte[] d = NativeAnalyzer.readAll(f);
                 out.put("project", new String(d, "UTF-8"));
                 return;
             }
             if (n.equals("Project_Delete")) {
-                if (name == null) { out.put("error", "需要 name"); return; }
-                File f = new File(dir, name + ".json");
+                if (projName == null) { out.put("error", "需要 name"); return; }
+                File f = new File(dir, projName + ".json");
                 out.put("deleted", f.isFile() && f.delete());
                 return;
             }
@@ -1369,8 +1369,11 @@ public final class ToolExecutor {
                 byte[] d = NativeAnalyzer.readAll(replace);
                 os.write(d);
             } else if (!e.isDirectory()) {
-                byte[] d = NativeAnalyzer.readAll(z.getInputStream(e));
-                os.write(d);
+                java.io.InputStream in = z.getInputStream(e);
+                byte[] buf = new byte[65536];
+                int rr;
+                while ((rr = in.read(buf)) > 0) os.write(buf, 0, rr);
+                in.close();
             }
             os.closeEntry();
         }
@@ -1459,16 +1462,7 @@ public final class ToolExecutor {
         }
     }
 
-    private static byte[] parseHex(String s) {
-        String t = s.replaceAll("[\\s,\\-\\:]", "");
-        if (t.toLowerCase().startsWith("0x")) t = t.substring(2);
-        if (t.length() % 2 != 0) t = "0" + t;
-        byte[] out = new byte[t.length() / 2];
-        for (int i = 0; i < out.length; i++) {
-            out[i] = (byte) Integer.parseInt(t.substring(i * 2, i * 2 + 2), 16);
-        }
-        return out;
-    }
+    
 
     /** Pentest 各扫描类别对应的关键词表。 */
     private static String[] keywordsFor(String set) {
