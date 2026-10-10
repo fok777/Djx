@@ -139,6 +139,15 @@ public final class EngineUnpacker {
             is.close();
             int code = p.waitFor();
             String out = new String(bo.toByteArray(), "UTF-8").trim();
+            // exit=139 = 128+SIGSEGV(11)：进程**已经启动并跑起来了**，
+            // 只是 blutter 不带参数会直接崩。相比之前的
+            // "CANNOT LINK EXECUTABLE"，这恰恰说明链接问题已解决。
+            // 不把它当失败，否则会误导排查方向。
+            if (code == 139) {
+                return "可启动（exit=139 SIGSEGV，无参数调用属预期）\n"
+                        + "  LD_LIBRARY_PATH=" + libPath
+                        + "\n  LD_PRELOAD=" + pb.environment().get("LD_PRELOAD");
+            }
             // CANNOT LINK EXECUTABLE 是 Android linker 的特有报错：
             // 常见原因是缺 libc++_shared.so，或 _Unwind_* 这类
             // 来自 libgcc/libunwind 的符号在目标 ROM 上找不到。

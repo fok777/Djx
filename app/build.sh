@@ -76,6 +76,17 @@ if [ -d "$UNIDBG_SRC" ]; then
   fi
 fi
 
+# 校验：R2Core 必须真的进了 dex。
+# 之前一直 ClassNotFoundException 就是因为漏编译 com/r2aibridge 包，
+# 但构建照样 success——没有这道校验根本发现不了。
+if grep -aq "r2aibridge" build/classes.dex 2>/dev/null; then
+  echo "::notice::dex-has-r2aibridge=1"
+  echo "  ✓ dex 含 com/r2aibridge/R2Core"
+else
+  echo "::error::dex-has-r2aibridge=0 —— R2Core 未进 dex，radare2 桥必然 ClassNotFoundException"
+  echo "  ✗ dex 缺 com/r2aibridge/R2Core"
+fi
+
 echo "[4/5] 打包 classes.dex + assets + 引擎资产"
 ENGINE_SRC="$(cd .. && pwd)/assets/engine"
 python3 - "$ENGINE_SRC" <<'PYCODE'

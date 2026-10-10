@@ -559,14 +559,25 @@ public final class NativeAnalyzer {
     }
 
     /** 从 APK 里解压出指定条目到缓存目录，返回本地文件。 */
+    /** 上一次解包失败的原因。之前 catch 里静默返回 null，
+     *  日志只看到"DEX 0, SO 0"却不知道为什么——现在把原因带出去。 */
+    public static String lastExtractError = null;
+
     public static File extractEntry(File apk, String entryName, File outDir) {
         ZipFile z = null;
         InputStream is = null;
+        lastExtractError = null;
         try {
             z = new ZipFile(apk);
             ZipEntry e = z.getEntry(entryName);
-            if (e == null) return null;
-            if (!outDir.exists()) outDir.mkdirs();
+            if (e == null) { lastExtractError = "APK 内无此条目: " + entryName; return null; }
+            if (outDir == null) { lastExtractError = "输出目录为空"; return null; }
+            if (!outDir.exists() && !outDir.mkdirs()) {
+                // Android 11+ 分区存储：公共 Download 目录不能用 File API 直接建。
+                // 这时静默失败会让上层看到"解包 0 个"，必须明确报出来。
+                lastExtractError = "无法创建输出目录(分区存储限制?): " + outDir.getAbsolutePath();
+                return null;
+            }
             File out = new File(outDir, entryName.replace('/', '_'));
             is = z.getInputStream(e);
             java.io.FileOutputStream os = new java.io.FileOutputStream(out);
@@ -576,6 +587,8 @@ public final class NativeAnalyzer {
             os.close();
             return out;
         } catch (Exception ex) {
+            lastExtractError = ex.getClass().getSimpleName() + ": " + ex.getMessage()
+                    + " @ " + (outDir == null ? "?" : outDir.getAbsolutePath());
             return null;
         } finally {
             if (is != null) try { is.close(); } catch (Exception ignored) {}

@@ -965,6 +965,13 @@ public class MainActivity extends Activity {
         showLogViewDialog(s, msg);
     }
 
+    /** 解包工作目录：私有，保证可写。 */
+    File extractWorkDir() {
+        File d = new File(getFilesDir(), "extracted");
+        if (!d.exists() && !d.mkdirs()) d = getFilesDir();
+        return d;
+    }
+
     /** 汇总所有日志来源，不再互相清空。 */
     String collectAllLog() {
         StringBuilder sb = new StringBuilder();
@@ -1488,19 +1495,30 @@ public class MainActivity extends Activity {
 
             // ===== ② 解包 =====
             appendCardSection("② 解包中…", "→ " + exportDir().getAbsolutePath());
+            // 解包必须落到私有目录：Android 11+ 分区存储下，
+            // 公共 Download 目录不能用 File API 直接写，mkdirs() 会失败，
+            // 结果就是每个条目都解包失败，上层只看到"DEX 0, SO 0"。
+            // 私有目录一定能写；分析完成后再把结果文本导出到公共目录。
+            final File workDir = extractWorkDir();
             int dexN = 0;
+            String dexErr = null;
             if (info.dexes != null) {
                 for (String dx : info.dexes) {
-                    if (NativeAnalyzer.extractEntry(apk, dx, exportDir()) != null) dexN++;
+                    if (NativeAnalyzer.extractEntry(apk, dx, workDir) != null) dexN++;
+                    else if (dexErr == null) dexErr = NativeAnalyzer.lastExtractError;
                 }
             }
             final java.util.List<String> soPaths = new java.util.ArrayList<String>();
+            String soErr = null;
             if (info.libs != null) {
                 for (String lib : info.libs) {
-                    File o = NativeAnalyzer.extractEntry(apk, lib, exportDir());
+                    File o = NativeAnalyzer.extractEntry(apk, lib, workDir);
                     if (o != null) soPaths.add(o.getAbsolutePath());
+                    else if (soErr == null) soErr = NativeAnalyzer.lastExtractError;
                 }
             }
+            if (dexN == 0 && dexErr != null) appendLog("DEX 解包失败: " + dexErr);
+            if (soPaths.isEmpty() && soErr != null) appendLog("SO 解包失败: " + soErr);
             appendCardSection("② 解包完成",
                     "DEX " + dexN + " 个 · SO " + soPaths.size() + " 个\n"
                             + exportDir().getAbsolutePath());
