@@ -939,6 +939,7 @@ public final class ToolExecutor {
                 realCmd = (mapped != null && !mapped.trim().isEmpty())
                         ? mapped : defaultR2Cmd(n);
             }
+            String res = Radare2Bridge.cmd(realCmd);
             out.put("engine", "radare2 (内置 JNI 桥)");
             out.put("heuristic", false);
             out.put("command", realCmd);
