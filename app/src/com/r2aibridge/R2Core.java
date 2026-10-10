@@ -18,7 +18,13 @@ package com.r2aibridge;
  */
 public final class R2Core {
 
-    private R2Core() {}
+    /**
+     * 构造函数必须是 public：桥 so 的 JNI 层若按实例方法实现
+     * （JNIEnv*, jobject 而非 jclass），就需要能 new 出来；
+     * 而 private 会让反射 newInstance 抛 IllegalAccessException。
+     * 方法本身是 static，所以两种调用方式都能工作。
+     */
+    public R2Core() {}
 
     static {
         // Radare2Bridge 已经按依赖拓扑用 System.load(绝对路径) 手动加载过

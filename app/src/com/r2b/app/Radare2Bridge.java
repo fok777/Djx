@@ -190,11 +190,10 @@ public final class Radare2Bridge {
         if (!loaded) return "radare2 未加载: " + loadError;
         try {
             Class<?> k = Class.forName("com.r2aibridge.R2Core");
-            Object inst = k.newInstance();
             java.lang.reflect.Method init = k.getMethod("initR2Core");
-            Object r = init.invoke(inst);
+            Object r = init.invoke(null);
             java.lang.reflect.Method exec = k.getMethod("executeCommand", String.class);
-            Object out = exec.invoke(inst, command);
+            Object out = exec.invoke(null, command);
             return String.valueOf(out);
         } catch (ClassNotFoundException e) {
             return "R2Core 类不存在（桥未打进包）";
@@ -221,9 +220,8 @@ public final class Radare2Bridge {
         if (!f.exists()) return "文件不存在: " + path;
         try {
             Class<?> k = Class.forName("com.r2aibridge.R2Core");
-            Object inst = k.newInstance();
-            k.getMethod("initR2Core").invoke(inst);
-            Object out = k.getMethod("openFile", String.class).invoke(inst, path);
+            k.getMethod("initR2Core").invoke(null);
+            Object out = k.getMethod("openFile", String.class).invoke(null, path);
             String r = String.valueOf(out);
             // openFile 返回 false / 错误时，退而用 oo+ 重新打开
             if (r == null || "false".equalsIgnoreCase(r.trim())
@@ -245,10 +243,9 @@ public final class Radare2Bridge {
         if (!loaded) return "radare2 未加载: " + loadError;
         try {
             Class<?> k = Class.forName("com.r2aibridge.R2Core");
-            Object inst = k.newInstance();
-            k.getMethod("initR2Core").invoke(inst);
+            k.getMethod("initR2Core").invoke(null);
             java.lang.reflect.Method m = k.getMethod("testR2");
-            return String.valueOf(m.invoke(inst));
+            return String.valueOf(m.invoke(null));
         } catch (Throwable t) {
             return "自检失败: " + t.getClass().getSimpleName() + ": " + t.getMessage();
         }
