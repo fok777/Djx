@@ -107,11 +107,13 @@ public class MainActivity extends Activity {
         mainView.addView(fileBox, gap());
         LinearLayout stRow = new LinearLayout(this);
         TextView ready = tv("就绪", 13, green, true);
-        Button viewLog = pill("查看日志", 0xFFEEF1F5, blue);
-        Button copyLog = pill("复制日志", 0xFFEEF1F5, blue);
+        Button viewLog = pill("日志", 0xFFEEF1F5, blue);
+        Button copyLog = pill("复制", 0xFFEEF1F5, blue);
+        Button clearBtn = pill("清空", 0xFFEEF1F5, 0xFFD93025);
         stRow.addView(ready, new LinearLayout.LayoutParams(0, -1, 1f));
         stRow.addView(viewLog);
         stRow.addView(copyLog);
+        stRow.addView(clearBtn);
         mainView.addView(stRow, gap());
         // APK 分析结果：选完文件直接在这里出，不再只往服务日志里打
         apkCard = new LinearLayout(this);
@@ -183,6 +185,7 @@ public class MainActivity extends Activity {
         // 服务页这个 copyAll 是独立对象，之前完全没绑事件
         copyAll.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { copyAll(); } });
         copyLog.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { copyAll(); } });
+        clearBtn.setOnClickListener(new View.OnClickListener() { public void onClick(View v) { clearLog(); } });
         viewLog.setOnClickListener(new View.OnClickListener() { public void onClick(View v) {
             String c = collectAllLog();
             if (c.isEmpty()) { toast("暂无日志"); return; }
@@ -1187,6 +1190,22 @@ public class MainActivity extends Activity {
         });
         r.addView(c);
         return r;
+    }
+
+    /**
+     * 清空日志。
+     *
+     * 要清三处，少一处都会"清完又冒出来"：
+     *   1. fullLog（操作日志缓冲）
+     *   2. logView（面板显示）
+     *   3. McpForegroundService 的服务侧缓冲——它在另一个组件里，
+     *      不清的话下次复制日志/重建 Activity 又会把旧的补回来
+     */
+    void clearLog() {
+        fullLog.setLength(0);
+        if (logView != null) logView.setText("");
+        try { McpForegroundService.clearLog(); } catch (Throwable ignored) {}
+        toast("日志已清空");
     }
 
     /**

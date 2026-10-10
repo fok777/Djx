@@ -77,6 +77,13 @@ public class McpForegroundService extends Service {
         }
     }
 
+    /** 清空服务侧历史日志。 */
+    public static void clearLog() {
+        synchronized (LOGBUF) {
+            LOGBUF.clear();
+        }
+    }
+
     private static void emit(String line) {
         synchronized (LOGBUF) {
             LOGBUF.add(line);
