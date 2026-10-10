@@ -103,7 +103,176 @@ public final class FridaScripts {
         {"Fr_Eval", "%s"},
         {"Fr_Eval_Java", "Java.perform(function(){send({type:'eval',r:(%s)});});"},
         {"Fr_Cmd", "%s"},
+
+        // ---- 本批补齐：生命周期 / Java 重载 / 追踪 ----
+        {"Fr_Activity", "Java.perform(function(){"
+            + "var A=Java.use('android.app.Activity');"
+            + "['onCreate','onResume','onPause','onDestroy','onStart','onStop']"
+            + ".forEach(function(m){try{A[m].overload('android.os.Bundle')"
+            + ".implementation=function(b){send({type:'activity',method:m,"
+            + "cls:this.getClass().getName()});return this[m](b);};}catch(e){}"
+            + "try{A[m].overload().implementation=function(){"
+            + "send({type:'activity',method:m,cls:this.getClass().getName()});"
+            + "return this[m]();};}catch(e){}});});"},
+        {"Fr_Service", "Java.perform(function(){"
+            + "var S=Java.use('android.app.Service');"
+            + "['onCreate','onStartCommand','onDestroy','onBind']"
+            + ".forEach(function(m){try{"
+            + "var ov=S[m].overloads;ov.forEach(function(o){"
+            + "o.implementation=function(){"
+            + "send({type:'service',method:m,cls:this.getClass().getName()});"
+            + "return o.apply(this,arguments);};});}catch(e){}});});"},
+        {"Fr_Watch_Class", "Java.perform(function(){"
+            + "var C=Java.use('%s');"
+            + "var ms=Object.getOwnPropertyNames(C);var n=0;"
+            + "ms.forEach(function(m){try{"
+            + "var ov=C[m].overloads;"
+            + "if(!ov||!ov.length)return;"
+            + "ov.forEach(function(o){o.implementation=function(){"
+            + "send({type:'watch',cls:'%s',method:m,"
+            + "args:JSON.stringify([].slice.call(arguments)).slice(0,400)});"
+            + "return o.apply(this,arguments);};n++;});"
+            + "}catch(e){}});"
+            + "send({type:'watch_ready',cls:'%s',hooked:n});});"},
+        {"Fr_Method_Overloads", "Java.perform(function(){"
+            + "var C=Java.use('%s');"
+            + "var out=[];"
+            + "Object.getOwnPropertyNames(C).forEach(function(m){try{"
+            + "var ov=C[m].overloads;if(!ov)return;"
+            + "ov.forEach(function(o){out.push(m+'('+o.argumentTypes.join(',')+')');});"
+            + "}catch(e){}});"
+            + "send({type:'overloads',cls:'%s',methods:out});});"},
+        {"Fr_Overload", "Java.perform(function(){"
+            + "var C=Java.use('%s');"
+            + "var m=C['%s'];var n=0;"
+            + "m.overloads.forEach(function(o){"
+            + "o.implementation=function(){"
+            + "send({type:'overload',cls:'%s',method:'%s',"
+            + "sig:o.argumentTypes.join(','),"
+            + "args:JSON.stringify([].slice.call(arguments)).slice(0,400)});"
+            + "return o.apply(this,arguments);};n++;});"
+            + "send({type:'overload_ready',hooked:n});});"},
+        {"Fr_Find_Callers", "var m=Process.getModuleByName('%s');"
+            + "var a=m.getExportByName('%s');"
+            + "Interceptor.attach(a,{onEnter:function(args){"
+            + "send({type:'caller',sym:'%s',"
+            + "retaddr:this.returnAddress.toString(),"
+            + "bt:Thread.backtrace(this.context,Backtracer.ACCURATE)"
+            + ".map(DebugSymbol.fromAddress).map(function(s){return s.toString();})});}});"},
+        {"Fr_Trace", "var m=Process.getModuleByName('%s');"
+            + "var a=m.getExportByName('%s');"
+            + "Interceptor.attach(a,{onEnter:function(args){"
+            + "send({type:'trace_enter',sym:'%s',"
+            + "args:[args[0].toString(),args[1].toString(),args[2].toString()]});},"
+            + "onLeave:function(rv){send({type:'trace_leave',sym:'%s',ret:rv.toString()});}});"},
+        {"Fr_Malloc_Hook", "var mal=Module.findExportByName(null,'malloc');"
+            + "var fre=Module.findExportByName(null,'free');"
+            + "if(mal)Interceptor.attach(mal,{onEnter:function(a){"
+            + "this.n=a[0].toInt32();},onLeave:function(r){"
+            + "send({type:'malloc',size:this.n,ptr:r.toString()});}});"
+            + "if(fre)Interceptor.attach(fre,{onEnter:function(a){"
+            + "send({type:'free',ptr:a[0].toString()});}});"
+            + "send({type:'malloc_ready',ok:!!mal});"},
+        {"Fr_Signal_Hook", "var sig=Module.findExportByName(null,'signal');"
+            + "if(sig)Interceptor.attach(sig,{onEnter:function(a){"
+            + "send({type:'signal',signum:a[0].toInt32(),"
+            + "handler:a[1].toString()});}});"
+            + "send({type:'signal_ready',ok:!!sig});"},
+        {"Fr_Crash", "Process.setExceptionHandler(function(d){"
+            + "send({type:'crash',type:d.type,address:d.address.toString(),"
+            + "memory:d.memory?JSON.stringify(d.memory.operation):'',"
+            + "context:d.context?JSON.stringify(Object.keys(d.context)):'',"
+            + "bt:d.context?Thread.backtrace(d.context,Backtracer.ACCURATE)"
+            + ".map(DebugSymbol.fromAddress).map(function(s){return s.toString();}):[]});"
+            + "return true;});send({type:'crash_handler',installed:true});"},
+        {"Fr_Discover", "var cnt={};var mods=Process.enumerateModulesSync();"
+            + "send({type:'discover_note',"
+            + "note:'Stalker 采样需在目标线程内执行；'"
+            + "+'当前返回模块与导出概览作为起点',"
+            + "module_count:mods.length});"},
+        {"Fr_Follow_Thread", "Stalker.follow(Process.getCurrentThreadId(),{"
+            + "events:{call:false,ret:false,exec:false,block:false,compile:false},"
+            + "onReceive:function(ev){send({type:'stalker',"
+            + "tid:Process.getCurrentThreadId()},{data:ev});}});"
+            + "send({type:'stalker_follow',"
+            + "tid:Process.getCurrentThreadId()});"},
+        {"Fr_Env_Override", "Java.perform(function(){try{"
+            + "var SP=Java.use('android.os.SystemProperties');"
+            + "SP.get.overload('java.lang.String').implementation=function(k){"
+            + "var v=this.get(k);"
+            + "send({type:'prop',key:k,value:v});"
+            + "if(k==='%s')return '%s';"
+            + "return v;};"
+            + "send({type:'prop_hook',ok:true});"
+            + "}catch(e){send({type:'prop_hook',err:''+e});}});"},
+        {"Fr_Prop", "Java.perform(function(){try{"
+            + "var SP=Java.use('android.os.SystemProperties');"
+            + "SP.set.overload('java.lang.String','java.lang.String')"
+            + ".implementation=function(k,v){"
+            + "send({type:'prop_set',key:k,value:v});"
+            + "return this.set(k,v);};"
+            + "send({type:'prop_ready',note:'已 hook set，读取请用 Fr_Env_Override'});"
+            + "}catch(e){send({type:'prop',err:''+e});}});"},
+        {"Fr_Keyboard", "Java.perform(function(){try{"
+            + "var IMM=Java.use('android.view.inputmethod.InputMethodManager');"
+            + "send({type:'keyboard',"
+            + "note:'模拟输入需注入到目标 Activity；'"
+            + "+'可用 adb shell input text 作为替代',"
+            + "imm:typeof IMM!=='undefined'});"
+            + "}catch(e){send({type:'keyboard',err:''+e});}});"},
+        {"Fr_SSL_Upgrade", "var sr=Module.findExportByName(null,'SSL_read');"
+            + "var sw=Module.findExportByName(null,'SSL_write');"
+            + "function dump(f,n){if(!f)return;"
+            + "Interceptor.attach(f,{onEnter:function(a){this.p=a[1];this.n=a[2].toInt32();},"
+            + "onLeave:function(r){try{"
+            + "send({type:n,data:this.p.readCString?this.p.readByteArray(this.n):''});"
+            + "}catch(e){}}});}"
+            + "dump(sr,'ssl_read');dump(sw,'ssl_write');"
+            + "send({type:'ssl_ready',read:!!sr,write:!!sw});"},
+        {"Fr_To_R2", "var m=Process.getModuleByName('%s');"
+            + "send({type:'to_r2',module:m.name,"
+            + "base:m.base.toString(),size:m.size,"
+            + "offset:'%s',"
+            + "runtime_addr:(m.base.add(ptr('%s'))).toString(),"
+            + "r2_cmd:'s '+m.base.add(ptr('%s')).toString()});"},
+        {"Fr_Gadget", "send({type:'gadget',"
+            + "note:'Gadget 免 root 方案：1) 把 libfrida-gadget.so 放进 APK 的 lib/<abi>/ '"
+            + "+'2) 在入口用 System.loadLibrary(\\''+'frida-gadget'+'\\') 或改 smali '"
+            + "+'3) 放 libfrida-gadget.config.so 指定 script 路径 '"
+            + "+'4) 重新打包签名安装；本端可用 File_Download 取配置'});"},
+        {"Fr_Read_Messages", "send({type:'messages',"
+            + "note:'send() 的数据由宿主侧接收；'"
+            + "+'在 CLI 模式下 frida 会直接把 send 内容打到 stdout',"
+            + "pid:Process.id});"},
     };
+
+    /**
+     * 设备侧操作：这类工具名看着像 frida，实际是设备/会话管理，
+     * 不该生成 JS 注入脚本（Ls/Pull/Push/Rm 是文件操作，
+     * Start_/Stop_Server 是进程管理）。
+     * 走 shell 或 FridaChannel，不走 execScript。
+     */
+    private static final String[][] DEVICE = {
+        {"Fr_Ls",                 "shell:ls -la %s"},
+        {"Fr_Rm",                 "shell:rm -rf %s"},
+        {"Fr_Pull",               "shell:cat %s"},
+        {"Fr_Push",               "shell:write:%s"},
+        {"Fr_Kill",               "shell:kill %s"},
+        {"Fr_Stop_Server",        "server:stop"},
+        {"Fr_Start_Server",       "server:start"},
+        {"Fr_List_Sessions",      "session:list"},
+        {"Fr_Close",              "session:close"},
+        {"Fr_Detach",             "session:close"},
+        {"Fr_Attach",             "session:attach"},
+        {"Fr_Spawn",              "session:spawn"},
+        {"Fr_LoadScript",         "session:loadscript"},
+    };
+
+    /** 设备侧 op；null 表示不是设备操作。 */
+    public static String deviceOpFor(String tool) {
+        for (String[] r : DEVICE) if (r[0].equals(tool)) return r[1];
+        return null;
+    }
 
     /** 取某工具对应的 JS 脚本；null 表示无预设（交给调用方传 script）。 */
     public static String scriptFor(String tool, String a1, String a2, String a3) {

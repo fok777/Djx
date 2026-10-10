@@ -1573,6 +1573,11 @@ public final class ToolExecutor {
 
     /** Frida 双通道：探测 / 拉起 / 生成脚本 / 生成 gadget 配置。 */
     private void frida(String n, JSONObject a, JSONObject out) throws Exception {
+        // 先看是不是设备/会话管理类（Ls/Pull/Push/Rm/Start_Server/...），
+        // 这类不该生成 JS 注入脚本，走 shell 或 FridaChannel
+        String devOp = FridaScripts.deviceOpFor(n);
+        if (devOp != null) { fridaDevice(n, devOp, a, out); return; }
+
         String script = opt(a, "script", "js", "code");
         if (script == null || script.trim().isEmpty()) {
             String a1 = opt(a, "module", "name", "class", "cls", "addr", "address", "package", "pkg");
@@ -1592,6 +1597,110 @@ public final class ToolExecutor {
         out.put("script", script);
         String target = opt(a, "target", "pid", "process", "pkg", "package");
         out.put("result", FridaChannel.execScript(ctx, target, script));
+    }
+
+    /** Frida 的设备/会话侧操作（不走 JS 注入）。 */
+    private void fridaDevice(String n, String op, JSONObject a, JSONObject out)
+            throws Exception {
+        out.put("tool", n);
+        out.put("op", op);
+        String arg = opt(a, "path", "file", "target", "pid", "name", "package", "pkg");
+
+        if (op.startsWith("server:")) {
+            if (op.equals("server:start")) {
+                out.put("result", FridaChannel.start(ctx));
+            } else {
+                out.put("result", shellOut("killall frida-server 2>/dev/null; "
+                        + "pkill -f frida-server 2>/dev/null; echo done"));
+            }
+            FridaChannel.Status st = FridaChannel.probe(ctx);
+            out.put("server_running", st != null && st.serverRunning);
+            return;
+        }
+        if (op.startsWith("session:")) {
+            FridaChannel.Status st = FridaChannel.probe(ctx);
+            out.put("server_running", st != null && st.serverRunning);
+            out.put("gadget_available", st != null && st.gadgetAvailable);
+            out.put("rooted", st != null && st.rooted);
+            if (op.equals("session:list")) {
+                out.put("sessions", "本端为一次性 CLI 调用，无长驻会话池；"
+                        + "每次调用即建即销");
+                return;
+            }
+            if (op.equals("session:attach")) {
+                out.put("usage", "在调用任意 Fr_* 时传 target（进程名或 pid）即可附加；"
+                        + "或传 -p <pid> / -n <name>");
+                return;
+            }
+            if (op.equals("session:spawn")) {
+                out.put("usage", "冷启动注入需 frida CLI 的 -f 参数；"
+                        + "当前 execScript 走附加模式，spawn 请用 Fr_Eval 配合外部 CLI");
+                return;
+            }
+            if (op.equals("session:loadscript")) {
+                String pth = opt(a, "script", "script_path", "path", "file");
+                if (pth == null) { out.put("error", "需要 script 路径"); return; }
+                File f = new File(pth);
+                if (!f.isFile()) { out.put("error", "脚本不存在: " + pth); return; }
+                byte[] d = NativeAnalyzer.readAll(f);
+                out.put("script_path", pth);
+                out.put("result", FridaChannel.execScript(ctx, arg,
+                        new String(d, "UTF-8")));
+                return;
+            }
+            out.put("closed", true);
+            return;
+        }
+        // shell: 类
+        String cmd = op.substring(6);
+        if (cmd.contains("%s")) {
+            if (arg == null) { out.put("error", "缺少 path / target"); return; }
+            cmd = cmd.replace("%s", arg);
+        }
+        if (cmd.startsWith("write:")) {
+            // Fr_Push：把本地内容写到设备路径
+            String dst = cmd.substring(6);
+            String content = opt(a, "content", "data", "text");
+            if (content == null) { out.put("error", "需要 content"); return; }
+            try {
+                File f = new File(dst);
+                File par = f.getParentFile();
+                if (par != null && !par.exists()) par.mkdirs();
+                java.io.FileOutputStream os = new java.io.FileOutputStream(f);
+                os.write(content.getBytes("UTF-8"));
+                os.close();
+                out.put("written", dst);
+                out.put("size", f.length());
+            } catch (Exception e) { out.put("error", e.getMessage()); }
+            return;
+        }
+        out.put("command", cmd);
+        out.put("result", shellOut(cmd));
+    }
+
+    /** 执行一条 shell 并返回输出（尽量带 root）。 */
+    private String shellOut(String cmd) {
+        try {
+            java.util.List<String> c = new java.util.ArrayList<String>();
+            String su = null;
+            try {
+                java.lang.reflect.Method m = FridaChannel.class
+                        .getDeclaredMethod("findSu");
+                m.setAccessible(true);
+                su = (String) m.invoke(null);
+            } catch (Throwable ignored) {}
+            if (su != null) { c.add(su); c.add("-c"); }
+            c.add("sh"); c.add("-c"); c.add(cmd);
+            Process pr = new ProcessBuilder(c).redirectErrorStream(true).start();
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] b = new byte[8192]; int r;
+            java.io.InputStream is = pr.getInputStream();
+            while ((r = is.read(b)) > 0) bo.write(b, 0, r);
+            pr.waitFor();
+            return new String(bo.toByteArray(), "UTF-8");
+        } catch (Exception e) {
+            return "执行失败: " + e.getMessage();
+        }
     }
 
     private void fridaChannel(JSONObject a, JSONObject out) throws Exception {
