@@ -314,6 +314,12 @@ public final class Radare2Bridge {
 
     public static String cachedVersion() { return cachedVersion; }
 
+    /** 当前状态摘要，供工具在 radare2 不可用时回给调用方。 */
+    public static String status() {
+        return loaded ? ("已加载 radare2 库")
+                : ("未加载: " + loadError);
+    }
+
     private static String[] availableMethods() {
         try {
             Class<?> k = Class.forName("com.r2aibridge.R2Core");

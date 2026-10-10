@@ -148,6 +148,89 @@ public final class ToolExecutor {
         }
 
         // ---------- Unity / Il2Cpp ----------
+        // ---------- Nav (23) ----------
+        // 导航/图类工具底层就是 radare2 的 ag* 命令族，直接转过去
+        if (n.startsWith("Nav_")) {
+            String op = EngineCommands.opFor(n);
+            out.put("engine", "radare2 (内置 JNI 桥)");
+            out.put("op", op);
+            if (op == null) { out.put("error", "未知 Nav 工具: " + n); return; }
+            if (op.startsWith("guide:")) {
+                out.put("guide", "反混淆通用步骤：1) afl 找函数 → 2) pdf 看控制流 "
+                        + "→ 3) axt/axf 追引用 → 4) 定位分发器 → 5) 还原真实分支");
+                return;
+            }
+            String cmd = op.substring(3);
+            String arg = opt(a, "addr", "address", "keyword", "kw", "name", "bytes", "value");
+            if (cmd.contains("%s")) {
+                cmd = cmd.replace("%s", arg == null ? "" : arg.trim());
+            } else if (arg != null && !arg.trim().isEmpty()) {
+                cmd = cmd + " @ " + arg.trim();
+            }
+            if (!Radare2Bridge.load(ctx).ok) {
+                out.put("error", "radare2 不可用: " + Radare2Bridge.status());
+                return;
+            }
+            out.put("command", cmd);
+            out.put("output", Radare2Bridge.cmd(cmd));
+            out.put("heuristic", false);
+            return;
+        }
+
+        // ---------- Pentest (12) ----------
+        // 渗透类落到字符串/符号关键词扫描，不依赖 mitmproxy 等外部服务
+        if (n.startsWith("Pentest_")) {
+            String op = EngineCommands.opFor(n);
+            out.put("engine", "内置扫描");
+            out.put("op", op);
+            if (op == null) { out.put("error", "未知 Pentest 工具: " + n); return; }
+            String kwSet = op.substring(5);
+            File tgt = null;
+            String tp = opt(a, "so", "path", "file", "apk_path", "target");
+            if (tp != null) tgt = new File(tp);
+            if (tgt == null || !tgt.isFile()) {
+                out.put("error", "需要有效的 so / apk 路径");
+                return;
+            }
+            NativeAnalyzer.ElfInfo ei = NativeAnalyzer.parseElf(tgt);
+            if (ei == null || ei.error != null) {
+                out.put("error", "解析失败: " + (ei == null ? "null" : ei.error));
+                return;
+            }
+            String[] keys = keywordsFor(kwSet);
+            JSONArray arr = new JSONArray();
+            for (NativeAnalyzer.Str st : ei.strings) {
+                String v = st.value.toLowerCase();
+                for (String k : keys) {
+                    if (v.contains(k)) {
+                        JSONObject o = new JSONObject();
+                        o.put("category", k); o.put("value", st.value);
+                        o.put("offset", st.offset);
+                        arr.put(o);
+                        break;
+                    }
+                }
+                if (arr.length() >= 300) break;
+            }
+            for (NativeAnalyzer.Sym sy : ei.symbols) {
+                String v = sy.name.toLowerCase();
+                for (String k : keys) {
+                    if (v.contains(k)) {
+                        JSONObject o = new JSONObject();
+                        o.put("category", k); o.put("symbol", sy.name);
+                        o.put("addr", sy.addr);
+                        arr.put(o);
+                        break;
+                    }
+                }
+                if (arr.length() >= 300) break;
+            }
+            out.put("hits", arr);
+            out.put("heuristic", true);
+            out.put("note", "关键词命中，需人工复核；真实抓包/绕过需配合 frida 或桌面端");
+            return;
+        }
+
         if (n.equals("Il2Cpp_Analyze") || n.equals("Il2Cpp_Dump")) {
             il2cpp(a, out);
             return;
@@ -436,6 +519,164 @@ public final class ToolExecutor {
         out.put("function_count", syms.size());
         out.put("functions", funcs);
 
+        // 按 op 派生：66 个 Blutter_* 工具落到同一份解析结果的不同切片
+        String bOp = EngineCommands.opFor(n);
+        if (bOp != null) {
+            String kw = opt(a, "keyword", "kw", "query", "q", "name", "class", "method", "type");
+            out.put("op", bOp);
+            if (bOp.equals("blutter.strings")) {
+                int lim = a.optInt("limit", 300);
+                JSONArray arr = new JSONArray();
+                for (NativeAnalyzer.Str st : elf.strings) {
+                    if (kw != null && !st.value.toLowerCase().contains(kw.toLowerCase())) continue;
+                    JSONObject o = new JSONObject();
+                    o.put("value", st.value); o.put("offset", st.offset);
+                    arr.put(o);
+                    if (arr.length() >= lim) break;
+                }
+                out.put("strings", arr);
+                return;
+            }
+            if (bOp.equals("blutter.symbols") || bOp.equals("blutter.imports")) {
+                JSONArray arr = new JSONArray();
+                int lim = a.optInt("limit", 500);
+                for (NativeAnalyzer.Sym sy : elf.symbols) {
+                    if (kw != null && !sy.name.toLowerCase().contains(kw.toLowerCase())) continue;
+                    JSONObject o = new JSONObject();
+                    o.put("name", sy.name); o.put("addr", sy.addr);
+                    o.put("size", sy.size); o.put("type", sy.type);
+                    arr.put(o);
+                    if (arr.length() >= lim) break;
+                }
+                out.put("symbols", arr);
+                return;
+            }
+            if (bOp.equals("blutter.classes")) {
+                JSONArray cls = new JSONArray();
+                java.util.Set<String> seen = new java.util.LinkedHashSet<String>();
+                int lim = a.optInt("limit", 300);
+                for (NativeAnalyzer.Sym sy : syms) {
+                    String cn = guessDartClass(sy.name);
+                    if (cn == null) continue;
+                    if (kw != null && !cn.toLowerCase().contains(kw.toLowerCase())) continue;
+                    if (seen.add(cn)) cls.put(cn);
+                    if (cls.length() >= lim) break;
+                }
+                out.put("classes", cls);
+                out.put("note", "Dart AOT 快照无完整类元数据，类名为符号前缀推断（启发式）");
+                return;
+            }
+            if (bOp.equals("blutter.class.methods") || bOp.equals("blutter.methods")) {
+                JSONArray arr = new JSONArray();
+                int lim = a.optInt("limit", 300);
+                for (NativeAnalyzer.Sym sy : syms) {
+                    String cn = guessDartClass(sy.name);
+                    if (kw != null) {
+                        if (cn == null || !cn.toLowerCase().contains(kw.toLowerCase())) continue;
+                    }
+                    if (!"FUNC".equals(sy.type)) continue;
+                    JSONObject o = new JSONObject();
+                    o.put("name", sy.name); o.put("addr", sy.addr);
+                    o.put("size", sy.size); o.put("class", cn);
+                    arr.put(o);
+                    if (arr.length() >= lim) break;
+                }
+                out.put("methods", arr);
+                return;
+            }
+            if (bOp.equals("blutter.urls")) {
+                JSONArray arr = new JSONArray();
+                for (NativeAnalyzer.Str st : elf.strings) {
+                    String v = st.value;
+                    if (v.startsWith("http://") || v.startsWith("https://")
+                            || v.contains("/api/") || v.startsWith("ws://")) {
+                        JSONObject o = new JSONObject();
+                        o.put("url", v); o.put("offset", st.offset);
+                        arr.put(o);
+                        if (arr.length() >= 300) break;
+                    }
+                }
+                out.put("urls", arr);
+                return;
+            }
+            if (bOp.equals("blutter.search")) {
+                if (kw == null) { out.put("error", "需要 keyword"); return; }
+                JSONArray arr = new JSONArray();
+                int lim = a.optInt("limit", 200);
+                for (NativeAnalyzer.Sym sy : syms) {
+                    if (sy.name.toLowerCase().contains(kw.toLowerCase())) {
+                        JSONObject o = new JSONObject();
+                        o.put("kind", "symbol"); o.put("name", sy.name);
+                        o.put("addr", sy.addr);
+                        arr.put(o);
+                    }
+                    if (arr.length() >= lim) break;
+                }
+                for (NativeAnalyzer.Str st : elf.strings) {
+                    if (st.value.toLowerCase().contains(kw.toLowerCase())) {
+                        JSONObject o = new JSONObject();
+                        o.put("kind", "string"); o.put("value", st.value);
+                        o.put("offset", st.offset);
+                        arr.put(o);
+                    }
+                    if (arr.length() >= lim) break;
+                }
+                out.put("hits", arr);
+                return;
+            }
+            if (bOp.equals("blutter.disasm")) {
+                String r = Radare2Bridge.load(ctx).ok
+                        ? Radare2Bridge.cmd("pdf @ " + (kw == null ? "entry0" : kw))
+                        : null;
+                out.put("disasm", r != null ? r : "radare2 不可用");
+                return;
+            }
+            if (bOp.equals("blutter.tor2") || bOp.equals("blutter.tofrida")
+                    || bOp.equals("blutter.tounidbg")) {
+                JSONArray arr = new JSONArray();
+                int lim = a.optInt("limit", 50);
+                int c = 0;
+                for (NativeAnalyzer.Sym sy : syms) {
+                    if (!"FUNC".equals(sy.type)) continue;
+                    if (kw != null && !sy.name.toLowerCase().contains(kw.toLowerCase())) continue;
+                    JSONObject o = new JSONObject();
+                    o.put("symbol", sy.name); o.put("addr", sy.addr);
+                    if (bOp.equals("blutter.tor2")) o.put("r2", "s " + sy.addr + "; af; pdf");
+                    if (bOp.equals("blutter.tofrida")) o.put("frida", "Interceptor.attach(Module.findBaseAddress(...).add(" + sy.addr + "), {...});");
+                    if (bOp.equals("blutter.tounidbg")) o.put("unidbg", "callAddress(module, " + sy.addr + "L)");
+                    arr.put(o);
+                    if (++c >= lim) break;
+                }
+                out.put("targets", arr);
+                return;
+            }
+            if (bOp.equals("blutter.version") || bOp.equals("blutter.aot")
+                    || bOp.equals("blutter.isolate") || bOp.equals("blutter.vm")
+                    || bOp.equals("blutter.lib") || bOp.equals("blutter.package")) {
+                out.put("note", "Dart 运行时内部结构，内置解析只能给出符号/字符串层面的推断（启发式）");
+                out.put("heuristic", true);
+                JSONArray arr = new JSONArray();
+                int lim = a.optInt("limit", 100);
+                int c = 0;
+                for (NativeAnalyzer.Str st : elf.strings) {
+                    String v = st.value.toLowerCase();
+                    if (v.contains("dart") || v.contains("flutter") || v.contains("isolate")) {
+                        JSONObject o = new JSONObject();
+                        o.put("value", st.value); o.put("offset", st.offset);
+                        arr.put(o);
+                        if (++c >= lim) break;
+                    }
+                }
+                out.put("hints", arr);
+                return;
+            }
+            if (bOp.equals("blutter.close") || bOp.equals("blutter.sessions")) {
+                out.put("sessions", "内置解析无持久会话");
+                return;
+            }
+            // 其余 op 落到概览
+        }
+
         if (n.equals("Blutter_Strings")) {
             int lim = a.optInt("limit", 300);
             JSONArray arr = new JSONArray();
@@ -629,6 +870,29 @@ public final class ToolExecutor {
      * unidbg 模拟执行。
      * 全部走反射——编译期不依赖 unidbg，缺库或 API 变动都不会让主程序崩。
      */
+    /** Pentest 各扫描类别对应的关键词表。 */
+    private static String[] keywordsFor(String set) {
+        if ("key".equals(set))  return new String[]{"aes", "rsa", "des", "hmac", "secret",
+                "private_key", "apikey", "api_key", "encrypt", "cipher"};
+        if ("cred".equals(set)) return new String[]{"password", "passwd", "token",
+                "credential", "login", "username", "session", "cookie"};
+        if ("auth".equals(set)) return new String[]{"auth", "login", "signin", "oauth",
+                "bearer", "jwt", "isvip", "ismember", "license"};
+        if ("pin".equals(set))  return new String[]{"pin", "certificate", "x509",
+                "trustmanager", "sslcontext", "hostnameverifier"};
+        if ("ssl".equals(set))  return new String[]{"ssl", "tls", "https", "certificate",
+                "pinning", "trustmanager"};
+        if ("sign".equals(set)) return new String[]{"sign", "signature", "md5", "sha1",
+                "sha256", "hmac", "nonce", "timestamp"};
+        if ("url".equals(set))  return new String[]{"http://", "https://", "/api/",
+                "endpoint", "graphql", "ws://"};
+        if ("c2".equals(set))   return new String[]{"c2", "command", "beacon", "bot",
+                "socket", "connect", "remote"};
+        if ("server".equals(set)) return new String[]{"server", "host", "domain",
+                "port", "nginx", "apache", "cloudflare"};
+        return new String[]{"replay", "request", "response", "http"};
+    }
+
     private void unidbg(String n, JSONObject a, JSONObject out) throws Exception {
         if (!UnidbgEngine.load(ctx)) {
             out.put("engine", "unidbg (不可用)");
