@@ -93,6 +93,7 @@ public final class Radare2Bridge {
     private static volatile boolean initDone = false;
     private static String initError = null;
     private static volatile String loadError = null;
+    private static volatile java.util.List<String> lastMissing = null;
     private static final Object LOCK = new Object();
 
     /**
@@ -125,6 +126,7 @@ public final class Radare2Bridge {
             if (!d.isDirectory()) {
                 rep.error = "引擎目录不存在: " + d.getAbsolutePath();
                 loadError = rep.error;
+                lastMissing = rep.missing;
                 return rep;
             }
             // 第一遍：检查缺失（缺关键库就直接放弃，避免半加载状态）
@@ -313,6 +315,14 @@ public final class Radare2Bridge {
     private static String cachedVersion = null;
 
     public static String cachedVersion() { return cachedVersion; }
+
+    /** 是否已成功加载。 */
+    public static boolean isLoaded() { return loaded; }
+
+    /** 加载时缺失的库清单。 */
+    public static java.util.List<String> missingLibs() {
+        return lastMissing == null ? new java.util.ArrayList<String>() : lastMissing;
+    }
 
     /** 当前状态摘要，供工具在 radare2 不可用时回给调用方。 */
     public static String status() {

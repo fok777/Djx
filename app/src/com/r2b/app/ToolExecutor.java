@@ -28,6 +28,18 @@ public final class ToolExecutor {
 
     private final Context ctx;
     private volatile String currentApk;   // 当前选中的 APK
+
+    /**
+     * 大结果外置存储。工具输出超过阈值时把全文存这里返回 blob_id，
+     * 客户端再用 Blob_Read 分页取回——避免长输出被直接截断丢失。
+     */
+    private static final java.util.Map<String, String> BLOBS =
+            new java.util.LinkedHashMap<String, String>() {
+                protected boolean removeEldestEntry(
+                        java.util.Map.Entry<String, String> e) {
+                    return size() > 32;   // 只留最近 32 份，防内存膨胀
+                }
+            };
     private transient TermuxExecutor termux;
 
     public ToolExecutor(Context ctx) {
@@ -313,6 +325,458 @@ public final class ToolExecutor {
             out.put("stderr", se);
             out.put("executed", true);
             return;
+        }
+
+        // ---------- APK 会话 / 打包 (7) ----------
+        if (n.equals("Apk_Version_Info")) {
+            String ap = opt(a, "apk_path", "path", "file");
+            if (ap == null) ap = currentApk;
+            if (ap == null) { out.put("error", "未选择 APK"); return; }
+            File f = new File(ap);
+            out.put("apk", ap);
+            out.put("exists", f.isFile());
+            if (f.isFile()) {
+                out.put("size", f.length());
+                java.util.zip.ZipFile z = null;
+                try {
+                    z = new java.util.zip.ZipFile(f);
+                    int dexs = 0, sos = 0;
+                    java.util.Enumeration<? extends java.util.zip.ZipEntry> en = z.entries();
+                    while (en.hasMoreElements()) {
+                        String nm = en.nextElement().getName();
+                        if (nm.endsWith(".dex")) dexs++;
+                        else if (nm.endsWith(".so")) sos++;
+                    }
+                    out.put("dex_count", dexs);
+                    out.put("so_count", sos);
+                    out.put("entries", z.size());
+                } catch (Exception e) {
+                    out.put("zip_error", e.getMessage());
+                } finally {
+                    try { if (z != null) z.close(); } catch (Exception ignored) {}
+                }
+            }
+            return;
+        }
+        if (n.equals("Apk_Close")) {
+            String d = opt(a, "apk_path", "path");
+            if (d != null) {
+                File f = new File(d);
+                if (f.isFile()) out.put("deleted", f.delete());
+            }
+            out.put("closed", true);
+            out.put("note", "内置解析无持久会话；仅清理临时文件");
+            return;
+        }
+        if (n.equals("Apk_Diff")) {
+            String p1 = opt(a, "a", "apk1", "path1", "left");
+            String p2 = opt(a, "b", "apk2", "path2", "right");
+            if (p1 == null) p1 = currentApk;
+            if (p1 == null || p2 == null) { out.put("error", "需要两个 APK 路径 (a / b)"); return; }
+            java.util.Set<String> s1 = zipNames(new File(p1));
+            java.util.Set<String> s2 = zipNames(new File(p2));
+            JSONArray only1 = new JSONArray(), only2 = new JSONArray(), both = new JSONArray();
+            for (String x : s1) { if (s2.contains(x)) both.put(x); else only1.put(x); }
+            for (String x : s2) { if (!s1.contains(x)) only2.put(x); }
+            out.put("only_in_a", only1);
+            out.put("only_in_b", only2);
+            out.put("common_count", both.length());
+            return;
+        }
+        if (n.equals("Apk_Pack")) {
+            String src = opt(a, "apk_path", "path", "src");
+            if (src == null) src = currentApk;
+            String so = opt(a, "so", "replace");
+            if (src == null || !new File(src).isFile()) { out.put("error", "需要源 APK"); return; }
+            if (so == null || !new File(so).isFile()) { out.put("error", "需要替换用的 so"); return; }
+            String entry = opt(a, "entry", "entry_name");
+            if (entry == null) entry = new File(so).getName();
+            File dst = new File(new File(src).getParentFile(),
+                    baseName(src) + "_成品.apk");
+            try {
+                copyZipReplacing(new File(src), dst, entry, new File(so));
+                out.put("output", dst.getAbsolutePath());
+                out.put("replaced_entry", entry);
+                out.put("note", "未重新签名，安装前需单独签名（如 apksigner）");
+            } catch (Exception e) {
+                out.put("error", "打包失败: " + e.getMessage());
+            }
+            return;
+        }
+        if (n.equals("Apk_Install") || n.equals("Apk_Install_Start")) {
+            String ap = opt(a, "apk_path", "path", "file");
+            if (ap == null) ap = currentApk;
+            if (ap == null || !new File(ap).isFile()) { out.put("error", "需要 APK 路径"); return; }
+            try {
+                Process pr = Runtime.getRuntime().exec(
+                        new String[]{"pm", "install", "-r", ap});
+                java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+                byte[] b = new byte[4096]; int r;
+                java.io.InputStream is = pr.getInputStream();
+                while ((r = is.read(b)) > 0) bo.write(b, 0, r);
+                int code = pr.waitFor();
+                out.put("exit_code", code);
+                out.put("output", new String(bo.toByteArray(), "UTF-8"));
+                out.put("note", code == 0 ? "安装完成" : "pm install 在非系统应用中通常无权限，需 root 或用 Intent 安装");
+            } catch (Exception e) {
+                out.put("error", e.getMessage());
+            }
+            return;
+        }
+        if (n.equals("Apk_Upload")) {
+            String ap = opt(a, "apk_path", "path", "file");
+            if (ap == null) ap = currentApk;
+            if (ap == null) { out.put("error", "未选择 APK"); return; }
+            out.put("upload_id", "local:" + ap);
+            out.put("path", ap);
+            out.put("note", "本端为直连模式，upload_id 即实际路径，可直接给 Apk_Open 使用");
+            return;
+        }
+
+        // ---------- Engine 配置 / 资产 (9) ----------
+        if (n.equals("Engine_List_Assets")) {
+            File root = EngineUnpacker.engineRoot(ctx);
+            JSONArray arr = new JSONArray();
+            listInto(root, arr, 0);
+            out.put("root", root == null ? "" : root.getAbsolutePath());
+            out.put("assets", arr);
+            return;
+        }
+        if (n.equals("Engine_R2_Status")) {
+            out.put("loaded", Radare2Bridge.isLoaded());
+            out.put("status", Radare2Bridge.status());
+            out.put("version", Radare2Bridge.cachedVersion());
+            java.util.List<String> miss = Radare2Bridge.missingLibs();
+            if (miss != null && !miss.isEmpty()) out.put("missing_libs", new JSONArray(miss));
+            return;
+        }
+        if (n.equals("Engine_R2_Deps")) {
+            java.util.List<String> miss = Radare2Bridge.missingLibs();
+            out.put("missing", miss == null ? new JSONArray() : new JSONArray(miss));
+            out.put("ok", miss == null || miss.isEmpty());
+            out.put("hint", "radare2 桥依赖全套 libr_*.so，缺任一都可能让调用期 SIGSEGV");
+            return;
+        }
+        if (n.equals("Engine_R2_Lib")) {
+            out.put("result", Radare2Bridge.status());
+            out.put("reload", Radare2Bridge.load(ctx).ok);
+            return;
+        }
+        if (n.equals("Engine_R2_Cmd")) {
+            String c = opt(a, "command", "cmd");
+            if (c == null) { out.put("error", "缺少 command"); return; }
+            out.put("command", c);
+            out.put("output", Radare2Bridge.cmd(c));
+            return;
+        }
+        if (n.equals("Engine_Guide")) {
+            out.put("guide", "引擎放 lib/<abi>/ 下（APK 打包时由 build.gradle 自动收编），"
+                    + "不要放 assets 再释放到私有目录再 exec —— "
+                    + "Android 10+ SELinux 禁止 execve 私有目录文件。"
+                    + "命名：radare2 用 libr_*.so + libr2aibridge.so；"
+                    + "blutter 用 libblutter_<dart版本>.so；unidbg 用 libunicorn*.so + dex。");
+            return;
+        }
+        if (n.equals("Engine_Fetch_Plan")) {
+            String eng = opt(a, "engine", "name");
+            out.put("engine", eng);
+            out.put("steps", "1) 取对应项目的官方预编译产物（arm64） "
+                    + "2) 放进 app/src/main/jniLibs/arm64-v8a/ "
+                    + "3) 重新构建；本端不联网，只出步骤不下网");
+            return;
+        }
+        if (n.equals("Engine_Config") || n.equals("Engine_Set")) {
+            out.put("config", "内置引擎，无可写调用配置；"
+                    + "所有引擎通过 JNI / exec 直接使用，不走外部配置文件");
+            return;
+        }
+
+        // ---------- Os 文件操作 (4) ----------
+        if (n.equals("Os_Stat")) {
+            String pth = opt(a, "path", "file");
+            if (pth == null) { out.put("error", "缺少 path"); return; }
+            File f = new File(pth);
+            out.put("path", pth);
+            out.put("exists", f.exists());
+            if (f.exists()) {
+                out.put("is_dir", f.isDirectory());
+                out.put("size", f.length());
+                out.put("readable", f.canRead());
+                out.put("writable", f.canWrite());
+                out.put("modified", f.lastModified());
+            }
+            return;
+        }
+        if (n.equals("Os_Write_File")) {
+            String pth = opt(a, "path", "file");
+            String content = opt(a, "content", "text", "data");
+            if (pth == null || content == null) { out.put("error", "缺少 path 或 content"); return; }
+            try {
+                File f = new File(pth);
+                File par = f.getParentFile();
+                if (par != null && !par.exists()) par.mkdirs();
+                java.io.FileOutputStream os = new java.io.FileOutputStream(f);
+                os.write(content.getBytes("UTF-8"));
+                os.close();
+                out.put("written", f.length());
+                out.put("path", f.getAbsolutePath());
+            } catch (Exception e) {
+                out.put("error", e.getMessage());
+            }
+            return;
+        }
+        if (n.equals("Os_Grep")) {
+            String pth = opt(a, "path", "file", "dir");
+            String pat = opt(a, "pattern", "regex", "keyword", "kw");
+            if (pth == null || pat == null) { out.put("error", "缺少 path 或 pattern"); return; }
+            JSONArray arr = new JSONArray();
+            int lim = a.optInt("limit", 200);
+            try {
+                java.util.regex.Pattern P = java.util.regex.Pattern.compile(pat);
+                grepInto(new File(pth), P, arr, lim, 0);
+            } catch (Exception e) {
+                out.put("error", "正则错误: " + e.getMessage());
+            }
+            out.put("hits", arr);
+            return;
+        }
+        if (n.equals("Os_Find")) {
+            String dir = opt(a, "path", "dir", "root");
+            String glob = opt(a, "pattern", "glob", "keyword", "kw");
+            if (dir == null) dir = ctx.getFilesDir().getAbsolutePath();
+            JSONArray arr = new JSONArray();
+            findInto(new File(dir), glob, arr, a.optInt("limit", 300), 0);
+            out.put("files", arr);
+            return;
+        }
+
+        // ---------- 其余杂项 (14) ----------
+        if (n.equals("Read_Logcat")) {
+            String tag = opt(a, "tag", "filter");
+            int lines = a.optInt("lines", 200);
+            try {
+                java.util.List<String> cmd = new java.util.ArrayList<String>();
+                cmd.add("logcat"); cmd.add("-d"); cmd.add("-t"); cmd.add(String.valueOf(lines));
+                if (tag != null) { cmd.add("-s"); cmd.add(tag); }
+                Process pr = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+                java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+                byte[] b = new byte[8192]; int r;
+                java.io.InputStream is = pr.getInputStream();
+                while ((r = is.read(b)) > 0) bo.write(b, 0, r);
+                pr.waitFor();
+                out.put("log", new String(bo.toByteArray(), "UTF-8"));
+                out.put("note", "Android 4.1+ 只能读本应用自身日志；"
+                        + "读其他应用需 READ_LOGS 权限或 root");
+            } catch (Exception e) {
+                out.put("error", e.getMessage());
+            }
+            return;
+        }
+        if (n.equals("Sqlite_Query")) {
+            String db = opt(a, "db", "path", "database");
+            String sql = opt(a, "sql", "query");
+            if (db == null || sql == null) { out.put("error", "缺少 db 或 sql"); return; }
+            android.database.sqlite.SQLiteDatabase sd = null;
+            try {
+                sd = android.database.sqlite.SQLiteDatabase.openDatabase(
+                        db, null, android.database.sqlite.SQLiteDatabase.OPEN_READONLY);
+                android.database.Cursor c = sd.rawQuery(sql, null);
+                JSONArray cols = new JSONArray();
+                for (String cn : c.getColumnNames()) cols.put(cn);
+                JSONArray rows = new JSONArray();
+                int lim = a.optInt("limit", 200);
+                while (c.moveToNext() && rows.length() < lim) {
+                    JSONObject o = new JSONObject();
+                    for (String cn : c.getColumnNames()) {
+                        int idx = c.getColumnIndex(cn);
+                        o.put(cn, c.getString(idx));
+                    }
+                    rows.put(o);
+                }
+                c.close();
+                out.put("columns", cols);
+                out.put("rows", rows);
+            } catch (Exception e) {
+                out.put("error", e.getMessage());
+            } finally {
+                try { if (sd != null) sd.close(); } catch (Exception ignored) {}
+            }
+            return;
+        }
+        if (n.equals("Find_Jni_Methods")) {
+            String pth = opt(a, "so", "path", "file");
+            if (pth == null) { out.put("error", "需要 so 路径"); return; }
+            NativeAnalyzer.ElfInfo ei = NativeAnalyzer.parseElf(new File(pth));
+            if (ei == null || ei.error != null) {
+                out.put("error", "解析失败: " + (ei == null ? "null" : ei.error)); return;
+            }
+            JSONArray arr = new JSONArray();
+            for (NativeAnalyzer.Sym sy : ei.symbols) {
+                if (sy.name.startsWith("Java_")) {
+                    JSONObject o = new JSONObject();
+                    o.put("name", sy.name); o.put("addr", sy.addr);
+                    arr.put(o);
+                    if (arr.length() >= 500) break;
+                }
+            }
+            out.put("jni_methods", arr);
+            return;
+        }
+        if (n.equals("Scan_Crypto_Signatures")) {
+            String pth = opt(a, "so", "path", "file");
+            if (pth == null) { out.put("error", "需要 so 路径"); return; }
+            NativeAnalyzer.ElfInfo ei = NativeAnalyzer.parseElf(new File(pth));
+            if (ei == null || ei.error != null) {
+                out.put("error", "解析失败"); return;
+            }
+            // AES S-box / MD5 / SHA 常量是固定字节，可按符号名 + 字符串双路扫
+            JSONArray arr = new JSONArray();
+            String[] K = {"aes","des","md5","sha1","sha256","sha512","rsa","hmac",
+                    "blowfish","rc4","tea","base64","crypto","cipher","encrypt"};
+            for (NativeAnalyzer.Sym sy : ei.symbols) {
+                String v = sy.name.toLowerCase();
+                for (String k : K) {
+                    if (v.contains(k)) {
+                        JSONObject o = new JSONObject();
+                        o.put("kind", "symbol"); o.put("name", sy.name);
+                        o.put("addr", sy.addr); o.put("algo", k);
+                        arr.put(o); break;
+                    }
+                }
+                if (arr.length() >= 300) break;
+            }
+            out.put("crypto_hits", arr);
+            out.put("heuristic", true);
+            out.put("note", "按符号名匹配，需人工复核常量表确认具体实现");
+            return;
+        }
+        if (n.equals("Apply_Hex_Patch")) {
+            String pth = opt(a, "so", "path", "file");
+            String off = opt(a, "offset", "addr", "address");
+            String hex = opt(a, "bytes", "hex", "value");
+            if (pth == null || off == null || hex == null) {
+                out.put("error", "需要 path / offset / bytes"); return;
+            }
+            try {
+                long o2 = parseAddr(off);
+                byte[] data = parseHex(hex);
+                java.io.RandomAccessFile rf = new java.io.RandomAccessFile(pth, "rw");
+                rf.seek(o2);
+                rf.write(data);
+                rf.close();
+                out.put("patched", data.length);
+                out.put("offset", o2);
+            } catch (Exception e) {
+                out.put("error", e.getMessage());
+            }
+            return;
+        }
+        if (n.equals("Address_Lookup")) {
+            String addr = opt(a, "addr", "address", "offset");
+            String pth = opt(a, "so", "path", "file");
+            if (addr == null) { out.put("error", "需要 addr"); return; }
+            long v = parseAddr(addr);
+            JSONArray arr = new JSONArray();
+            if (pth != null) {
+                NativeAnalyzer.ElfInfo ei = NativeAnalyzer.parseElf(new File(pth));
+                if (ei != null && ei.error == null) {
+                    for (NativeAnalyzer.Sym sy : ei.symbols) {
+                        if (v >= sy.addr && v < sy.addr + Math.max(sy.size, 1)) {
+                            JSONObject o = new JSONObject();
+                            o.put("symbol", sy.name); o.put("addr", sy.addr);
+                            o.put("offset_in_symbol", v - sy.addr);
+                            arr.put(o);
+                        }
+                    }
+                }
+            }
+            out.put("addr_input", addr);
+            out.put("addr", v);
+            out.put("hex", "0x" + Long.toHexString(v));
+            out.put("matches", arr);
+            return;
+        }
+        if (n.equals("Rename_Function")) {
+            String newName = opt(a, "name", "new_name");
+            String addr = opt(a, "addr", "address", "offset");
+            if (Radare2Bridge.load(ctx).ok) {
+                String c = (addr != null ? ("s " + addr + "; ") : "")
+                        + "afn " + (newName == null ? "" : newName);
+                out.put("command", c);
+                out.put("output", Radare2Bridge.cmd(c));
+            } else {
+                out.put("error", "radare2 不可用: " + Radare2Bridge.status());
+            }
+            return;
+        }
+        if (n.equals("Blob_Read")) {
+            String id = opt(a, "blob_id", "id");
+            if (id == null || !BLOBS.containsKey(id)) {
+                out.put("error", "未知 blob_id: " + id);
+                out.put("available", new java.util.ArrayList<String>(BLOBS.keySet()));
+                return;
+            }
+            String full = BLOBS.get(id);
+            int off = a.optInt("offset", 0);
+            int len = a.optInt("length", 20000);
+            if (off >= full.length()) { out.put("content", ""); out.put("eof", true); return; }
+            int end = Math.min(full.length(), off + len);
+            out.put("content", full.substring(off, end));
+            out.put("offset", off);
+            out.put("total", full.length());
+            out.put("eof", end >= full.length());
+            return;
+        }
+        if (n.equals("File_Download")) {
+            String pth = opt(a, "path", "file");
+            if (pth == null) { out.put("error", "缺少 path"); return; }
+            File f = new File(pth);
+            out.put("path", pth);
+            out.put("exists", f.isFile());
+            out.put("download_url", "http://<设备IP>:5051/file?path=" + pth);
+            out.put("note", "需与 MCP 服务同局域网；服务端需开启 /file 端点");
+            return;
+        }
+        if (n.startsWith("Project_")) {
+            File dir = new File(ctx.getFilesDir(), "projects");
+            if (!dir.exists() && !dir.mkdirs()) dir = ctx.getFilesDir();
+            String name = opt(a, "name", "project", "id");
+            if (n.equals("Project_List")) {
+                JSONArray arr = new JSONArray();
+                File[] fs = dir.listFiles();
+                if (fs != null) for (File f : fs) {
+                    JSONObject o = new JSONObject();
+                    o.put("name", f.getName()); o.put("size", f.length());
+                    arr.put(o);
+                }
+                out.put("projects", arr);
+                return;
+            }
+            if (n.equals("Project_Save") || n.equals("Project_Export")) {
+                if (name == null) { out.put("error", "需要 name"); return; }
+                try {
+                    File f = new File(dir, name + ".json");
+                    java.io.FileOutputStream os = new java.io.FileOutputStream(f);
+                    os.write(a.toString(2).getBytes("UTF-8"));
+                    os.close();
+                    out.put("saved", f.getAbsolutePath());
+                } catch (Exception e) { out.put("error", e.getMessage()); }
+                return;
+            }
+            if (n.equals("Project_Load")) {
+                if (name == null) { out.put("error", "需要 name"); return; }
+                File f = new File(dir, name + ".json");
+                if (!f.isFile()) { out.put("error", "项目不存在: " + name); return; }
+                byte[] d = NativeAnalyzer.readAll(f);
+                out.put("project", new String(d, "UTF-8"));
+                return;
+            }
+            if (n.equals("Project_Delete")) {
+                if (name == null) { out.put("error", "需要 name"); return; }
+                File f = new File(dir, name + ".json");
+                out.put("deleted", f.isFile() && f.delete());
+                return;
+            }
         }
 
         // ---------- 引擎状态 ----------
@@ -870,6 +1334,142 @@ public final class ToolExecutor {
      * unidbg 模拟执行。
      * 全部走反射——编译期不依赖 unidbg，缺库或 API 变动都不会让主程序崩。
      */
+    /** 存大结果并返回 blob_id。 */
+    static String putBlob(String content) {
+        String id = "blob_" + System.currentTimeMillis()
+                + "_" + (int) (Math.random() * 1000);
+        BLOBS.put(id, content == null ? "" : content);
+        return id;
+    }
+
+    private java.util.Set<String> zipNames(File f) {
+        java.util.Set<String> set = new java.util.LinkedHashSet<String>();
+        java.util.zip.ZipFile z = null;
+        try {
+            z = new java.util.zip.ZipFile(f);
+            java.util.Enumeration<? extends java.util.zip.ZipEntry> en = z.entries();
+            while (en.hasMoreElements()) set.add(en.nextElement().getName());
+        } catch (Exception ignored) {
+        } finally {
+            try { if (z != null) z.close(); } catch (Exception ignored) {}
+        }
+        return set;
+    }
+
+    private void copyZipReplacing(File src, File dst, String entry, File replace)
+            throws Exception {
+        java.util.zip.ZipFile z = new java.util.zip.ZipFile(src);
+        java.util.zip.ZipOutputStream os =
+                new java.util.zip.ZipOutputStream(new java.io.FileOutputStream(dst));
+        java.util.Enumeration<? extends java.util.zip.ZipEntry> en = z.entries();
+        while (en.hasMoreElements()) {
+            java.util.zip.ZipEntry e = en.nextElement();
+            os.putNextEntry(new java.util.zip.ZipEntry(e.getName()));
+            if (e.getName().equals(entry)) {
+                byte[] d = NativeAnalyzer.readAll(replace);
+                os.write(d);
+            } else if (!e.isDirectory()) {
+                byte[] d = NativeAnalyzer.readAll(z.getInputStream(e));
+                os.write(d);
+            }
+            os.closeEntry();
+        }
+        os.close();
+        z.close();
+    }
+
+    private String baseName(String p) {
+        String b = new File(p).getName();
+        int i = b.lastIndexOf('.');
+        return i > 0 ? b.substring(0, i) : b;
+    }
+
+    private void listInto(File d, JSONArray arr, int depth) {
+        if (d == null || !d.isDirectory() || depth > 3 || arr.length() > 500) return;
+        File[] fs = d.listFiles();
+        if (fs == null) return;
+        for (File f : fs) {
+            JSONObject o = new JSONObject();
+            try {
+                o.put("name", f.getName());
+                o.put("dir", f.isDirectory());
+                o.put("size", f.length());
+            } catch (Exception ignored) {}
+            arr.put(o);
+            if (f.isDirectory()) listInto(f, arr, depth + 1);
+        }
+    }
+
+    private void grepInto(File f, java.util.regex.Pattern P,
+                          JSONArray arr, int lim, int depth) {
+        if (f == null || arr.length() >= lim || depth > 3) return;
+        if (f.isDirectory()) {
+            File[] fs = f.listFiles();
+            if (fs == null) return;
+            for (File x : fs) grepInto(x, P, arr, lim, depth + 1);
+            return;
+        }
+        if (f.length() > 8L * 1024 * 1024) return;   // 跳过超大文件
+        try {
+            byte[] d = NativeAnalyzer.readAll(f);
+            String txt = new String(d, "UTF-8");
+            String[] lines = txt.split("\n");
+            for (int i = 0; i < lines.length && arr.length() < lim; i++) {
+                if (P.matcher(lines[i]).find()) {
+                    JSONObject o = new JSONObject();
+                    o.put("file", f.getAbsolutePath());
+                    o.put("line", i + 1);
+                    o.put("text", lines[i].length() > 500
+                            ? lines[i].substring(0, 500) : lines[i]);
+                    arr.put(o);
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    private void findInto(File d, String glob, JSONArray arr, int lim, int depth) {
+        if (d == null || arr.length() >= lim || depth > 4) return;
+        File[] fs = d.listFiles();
+        if (fs == null) return;
+        String g = glob == null ? null : glob.toLowerCase();
+        for (File f : fs) {
+            if (f.isDirectory()) { findInto(f, glob, arr, lim, depth + 1); continue; }
+            if (g == null || f.getName().toLowerCase().contains(g)) {
+                JSONObject o = new JSONObject();
+                try {
+                    o.put("path", f.getAbsolutePath());
+                    o.put("size", f.length());
+                } catch (Exception ignored) {}
+                arr.put(o);
+            }
+        }
+    }
+
+    /** 地址解析：支持 0x 前缀、十进制、十六进制。 */
+    private static long parseAddr(String s) {
+        if (s == null) return 0;
+        String t = s.trim();
+        try {
+            if (t.toLowerCase().startsWith("0x")) {
+                return Long.parseLong(t.substring(2), 16);
+            }
+            return Long.parseLong(t);
+        } catch (Exception e) {
+            try { return Long.parseLong(t, 16); } catch (Exception e2) { return 0; }
+        }
+    }
+
+    private static byte[] parseHex(String s) {
+        String t = s.replaceAll("[\\s,\\-\\:]", "");
+        if (t.toLowerCase().startsWith("0x")) t = t.substring(2);
+        if (t.length() % 2 != 0) t = "0" + t;
+        byte[] out = new byte[t.length() / 2];
+        for (int i = 0; i < out.length; i++) {
+            out[i] = (byte) Integer.parseInt(t.substring(i * 2, i * 2 + 2), 16);
+        }
+        return out;
+    }
+
     /** Pentest 各扫描类别对应的关键词表。 */
     private static String[] keywordsFor(String set) {
         if ("key".equals(set))  return new String[]{"aes", "rsa", "des", "hmac", "secret",

@@ -141,11 +141,8 @@ public class McpService {
                     JSONObject item = new JSONObject();
                     item.put("name", t.optString("name"));
                     item.put("description", t.optString("desc"));
-                    JSONObject schema = new JSONObject();
-                    schema.put("type", "object");
-                    schema.put("properties", new JSONObject());
-                    schema.put("required", new JSONArray());
-                    item.put("inputSchema", schema);
+                    item.put("inputSchema", buildSchema(t.optString("name"),
+                            t.optJSONArray("params")));
                     out.put(item);
                 }
             }
@@ -153,6 +150,89 @@ public class McpService {
             log("构建工具表失败: " + e.getMessage());
         }
         return out;
+    }
+
+    /**
+     * 由 params 生成真实 inputSchema。
+     *
+     * 之前一律返回空 object——客户端看不到任何参数说明，
+     * AI 只能凭工具名瞎猜参数，调用成功率极低。这是"工具看着多却不好用"
+     * 的主因之一。
+     *
+     * 另外：原始数据把几乎每个参数都标成 required=true，
+     * 真按这个校验会导致大量调用被拒（很多参数是可选的）。
+     * 所以只保留"确属必需"的少数几个，其余降级为可选。
+     */
+    private JSONObject buildSchema(String toolName, JSONArray params) {
+        JSONObject schema = new JSONObject();
+        JSONObject props = new JSONObject();
+        JSONArray req = new JSONArray();
+        try {
+            schema.put("type", "object");
+            if (params != null) {
+                for (int i = 0; i < params.length(); i++) {
+                    JSONObject p = params.optJSONObject(i);
+                    if (p == null) continue;
+                    String pn = p.optString("name");
+                    if (pn == null || pn.isEmpty()) continue;
+                    JSONObject o = new JSONObject();
+                    String ty = p.optString("type", "string");
+                    o.put("type", normType(ty));
+                    String pd = p.optString("desc");
+                    if (pd != null && !pd.isEmpty()) o.put("description", pd);
+                    props.put(pn, o);
+                    if (isTrulyRequired(toolName, pn)) req.put(pn);
+                }
+            }
+            // 通用兜底参数：几乎所有工具都接受，方便 AI 灵活调用
+            addFallback(props, "so", "目标 so 文件路径");
+            addFallback(props, "path", "文件路径");
+            addFallback(props, "target", "目标进程名或 pid（Frida 用）");
+            addFallback(props, "keyword", "关键词");
+            addFallback(props, "limit", "返回条数上限");
+            schema.put("properties", props);
+            schema.put("required", req);
+        } catch (Exception e) {
+            log("构建 schema 失败 " + toolName + ": " + e.getMessage());
+        }
+        return schema;
+    }
+
+    private void addFallback(JSONObject props, String n, String d) {
+        if (props == null || props.has(n)) return;
+        try {
+            JSONObject o = new JSONObject();
+            o.put("type", "string");
+            o.put("description", d);
+            props.put(n, o);
+        } catch (Exception ignored) {}
+    }
+
+    /** JSON Schema 类型归一（原始数据里混着 int/float/any 等）。 */
+    private String normType(String t) {
+        if (t == null) return "string";
+        String x = t.toLowerCase();
+        if (x.contains("int") || x.contains("long")) return "integer";
+        if (x.contains("bool")) return "boolean";
+        if (x.contains("float") || x.contains("double") || x.contains("number")) return "number";
+        return "string";
+    }
+
+    /**
+     * 只有极少数参数真的必填。全部标 required 会让 AI 因为缺一个无关
+     * 参数就被拒，反而调不动。
+     */
+    private boolean isTrulyRequired(String tool, String p) {
+        if ("command".equals(p) || "cmd".equals(p)) {
+            return tool.endsWith("_Cmd");
+        }
+        if ("script".equals(p) || "js".equals(p) || "code".equals(p)) {
+            return tool.endsWith("_Eval") || tool.endsWith("_LoadScript");
+        }
+        if ("keyword".equals(p) || "kw".equals(p) || "query".equals(p) || "q".equals(p)) {
+            return tool.endsWith("_Search") || tool.endsWith("_Find");
+        }
+        return false;
     }
 
     private String rpcResult(Object id, Object result) {
