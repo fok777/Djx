@@ -290,11 +290,29 @@ public final class Radare2Bridge {
             Class<?> k = Class.forName("com.r2aibridge.R2Core");
             k.getMethod("initR2Core").invoke(null);
             java.lang.reflect.Method m = k.getMethod("testR2");
-            return String.valueOf(m.invoke(null));
+            String r = String.valueOf(m.invoke(null));
+            cachedVersion = r;
+            // 关键：testR2 内部跑的是 r_core_new → r_core_cmd_str → r_core_free。
+            // 它结束后 core 已被释放，桥里那个静态指针成了悬空指针。
+            // 之后任何 executeCommand 都在这个已释放的 core 上跑 → SIGSEGV。
+            // （服务启动自检通过、但一调工具就崩，正是这个原因）
+            // 所以自检完必须重新 init，把有效 core 建回来。
+            initDone = false;
+            String ie = ensureInit();
+            if (ie != null) {
+                return r + "\n[警告] 自检后重新初始化失败: " + ie
+                        + "\n后续 r2 命令已被拒绝，避免崩溃。";
+            }
+            return r + "\n[已重新初始化 core，可供后续命令使用]";
         } catch (Throwable t) {
             return "自检失败: " + t.getClass().getSimpleName() + ": " + t.getMessage();
         }
     }
+
+    /** 启动自检拿到的版本串；R2_Version 直接用它，不再进 native。 */
+    private static String cachedVersion = null;
+
+    public static String cachedVersion() { return cachedVersion; }
 
     private static String[] availableMethods() {
         try {

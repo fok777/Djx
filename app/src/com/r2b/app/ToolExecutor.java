@@ -154,6 +154,18 @@ public final class ToolExecutor {
         }
 
         // ---------- radare2 ----------
+        // R2_Version 特殊处理：直接返回启动自检时拿到的版本串，
+        // 不再进 native。它之前一调用就崩进程（5051 随即拒绝连接），
+        // 版本信息是静态的，没必要冒险。
+        if (n.equals("R2_Version")) {
+            String v = Radare2Bridge.cachedVersion();
+            if (v != null) {
+                out.put("engine", "radare2 (内置 JNI 桥)");
+                out.put("version", v);
+                out.put("source", "启动自检缓存（未调用 native）");
+                return;
+            }
+        }
         if (n.startsWith("R2_")) {
             r2(n, a, out);
             return;
