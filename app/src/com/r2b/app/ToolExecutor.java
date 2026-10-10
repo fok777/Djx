@@ -98,6 +98,12 @@ public final class ToolExecutor {
 
         // ---------- Frida 双通道 / 补丁会话 ----------
         if (n.startsWith("Frida_Channel")) { fridaChannel(a, out); return; }
+
+        // ---------- Frida ----------
+        // 55 个 Fr_* 工具统一走"生成 JS → 投递执行"。
+        // 有 root + frida-server 就能真跑；否则返回脚本供手工注入，
+        // 不伪装成功。
+        if (n.startsWith("Fr_")) { frida(n, a, out); return; }
         if (n.startsWith("Patch_Session")) { patchSession(a, out); return; }
         if (n.startsWith("Ub_")) { unidbg(n, a, out); return; }
         if (n.startsWith("Capstone_") || n.startsWith("Disasm_")) { capstone(n, a, out); return; }
@@ -708,6 +714,28 @@ public final class ToolExecutor {
     }
 
     /** Frida 双通道：探测 / 拉起 / 生成脚本 / 生成 gadget 配置。 */
+    private void frida(String n, JSONObject a, JSONObject out) throws Exception {
+        String script = opt(a, "script", "js", "code");
+        if (script == null || script.trim().isEmpty()) {
+            String a1 = opt(a, "module", "name", "class", "cls", "addr", "address", "package", "pkg");
+            String a2 = opt(a, "size", "length", "len", "method", "symbol", "sym");
+            String a3 = opt(a, "bytes", "pattern", "value");
+            script = FridaScripts.scriptFor(n, a1, a2, a3);
+        }
+        FridaChannel.Status st = FridaChannel.probe(ctx);
+        out.put("tool", n);
+        out.put("frida_ready", st != null && (st.serverRunning || st.gadgetAvailable));
+        out.put("rooted", st != null && st.rooted);
+        if (script == null || script.trim().isEmpty()) {
+            out.put("error", "该 Frida 工具无预设脚本，请通过 script 参数直接传 JS");
+            out.put("hint", "Fr_Eval / Fr_Cmd 支持传入任意 JS 直接执行");
+            return;
+        }
+        out.put("script", script);
+        String target = opt(a, "target", "pid", "process", "pkg", "package");
+        out.put("result", FridaChannel.execScript(ctx, target, script));
+    }
+
     private void fridaChannel(JSONObject a, JSONObject out) throws Exception {
         String act = opt(a, "action");
         if (act == null) act = "status";

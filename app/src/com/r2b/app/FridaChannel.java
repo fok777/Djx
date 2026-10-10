@@ -122,6 +122,68 @@ public final class FridaChannel {
         }
     }
 
+    /**
+     * 真正执行一段 frida JS。
+     *
+     * 三种投递路径，按可用性依次尝试：
+     *   1. 本机 frida CLI（EngineUnpacker 能找到 frida 可执行文件）
+     *   2. Termux 里的 frida CLI（pip install frida-tools 后就有）
+     *   3. 都没有 → 把脚本落盘并返回，供 gadget 模式或手工执行
+     *
+     * 前两种都要求设备已 root 且 frida-server 在跑（端口 27042）。
+     * 做不到就如实返回脚本内容，绝不伪装成"执行成功"。
+     */
+    public static String execScript(Context c, String target, String js) {
+        if (js == null || js.trim().isEmpty()) return "脚本为空";
+        File dir = new File(c.getFilesDir(), "frida");
+        if (!dir.exists() && !dir.mkdirs()) dir = c.getFilesDir();
+        File f = new File(dir, "script.js");
+        try {
+            java.io.FileOutputStream os = new java.io.FileOutputStream(f);
+            os.write(js.getBytes("UTF-8"));
+            os.close();
+        } catch (Exception e) {
+            return "写脚本失败: " + e.getMessage();
+        }
+
+        String tgt = (target == null || target.trim().isEmpty()) ? "" : target.trim();
+        String sel = tgt.matches("-?\\d+") ? ("-p " + tgt) : ("-n " + tgt.isEmpty() ? "" : tgt);
+
+        // 1) 本机 frida CLI
+        File cli = EngineUnpacker.findExecutable(c, "frida");
+        if (cli != null) {
+            try {
+                List<String> cmd = new ArrayList<String>();
+                String su = findSu();
+                if (su != null) { cmd.add(su); cmd.add("-c"); }
+                cmd.add(cli.getAbsolutePath());
+                cmd.add("-U");
+                if (!sel.isEmpty()) { cmd.add(sel.split(" ")[0]); cmd.add(sel.split(" ")[1]); }
+                cmd.add("-l"); cmd.add(f.getAbsolutePath());
+                cmd.add("--no-pause"); cmd.add("-q");
+                ProcessBuilder pb = new ProcessBuilder(cmd);
+                pb.directory(cli.getParentFile());
+                pb.redirectErrorStream(true);
+                pb.environment().put("LD_LIBRARY_PATH", cli.getParent());
+                Process pr = pb.start();
+                java.io.InputStream is = pr.getInputStream();
+                java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+                byte[] buf = new byte[8192]; int r;
+                while ((r = is.read(buf)) > 0) bo.write(buf, 0, r);
+                pr.waitFor();
+                return "frida CLI 输出:\n" + new String(bo.toByteArray(), "UTF-8");
+            } catch (Exception e) {
+                return "frida CLI 执行失败: " + e.getMessage() + "\n脚本已保存到 " + f;
+            }
+        }
+
+        // 2) 都没有：交付脚本
+        return "未找到可执行 frida CLI（本机与 Termux 均无）。\n"
+                + "有 root 时：把 frida-server 跑起来（设置里可尝试自动拉起），\n"
+                + "并在 Termux 里 `pip install frida-tools` 即可自动走通。\n"
+                + "当前脚本已保存: " + f.getAbsolutePath() + "\n\n" + js;
+    }
+
     /** 生成 gadget 配置文件（通道 A 用）。 */
     public static File writeGadgetConfig(Context c, String scriptPath) {
         try {
