@@ -928,8 +928,17 @@ public final class ToolExecutor {
                 String opened = Radare2Bridge.open(target);
                 out.put("open_result", opened);
             }
-            String realCmd = cmd != null ? cmd : defaultR2Cmd(n);
-            String res = Radare2Bridge.cmd(realCmd);
+            // 命令来源优先级：
+            //   1. 调用方显式传的 command/cmd
+            //   2. R2Commands 映射表（覆盖 94 个 R2_* 工具）
+            //   3. defaultR2Cmd 兜底
+            String realCmd = cmd;
+            if (realCmd == null || realCmd.trim().isEmpty()) {
+                String arg = opt(a, "arg", "keyword", "kw", "addr", "address", "offset", "expr");
+                String mapped = R2Commands.commandFor(n, arg);
+                realCmd = (mapped != null && !mapped.trim().isEmpty())
+                        ? mapped : defaultR2Cmd(n);
+            }
             out.put("engine", "radare2 (内置 JNI 桥)");
             out.put("heuristic", false);
             out.put("command", realCmd);
@@ -944,7 +953,13 @@ public final class ToolExecutor {
         // 2) 降级 A：Termux（若用户装了并授权）
         TermuxExecutor tx = termux();
         if (tx.usable() && target != null) {
-            String realCmd = cmd != null ? cmd : defaultR2Cmd(n);
+            String realCmd = cmd;
+            if (realCmd == null || realCmd.trim().isEmpty()) {
+                String arg = opt(a, "arg", "keyword", "kw", "addr", "address", "offset", "expr");
+                String mapped = R2Commands.commandFor(n, arg);
+                realCmd = (mapped != null && !mapped.trim().isEmpty())
+                        ? mapped : defaultR2Cmd(n);
+            }
             String full = "r2 -q -c '" + realCmd.replace("'", "'\\''") + "' '" + target + "'";
             TermuxExecutor.Result r = tx.run(full, 60000);
             if (r.ok) {
