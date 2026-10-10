@@ -62,6 +62,37 @@ echo "[3/5] d8 dex"; "$D8" --release --lib "$AJ" --min-api 24 --output build \
 # 不走 JNA，所以 ART 上可以直接跑。
 UNIDBG_SRC="$(cd .. && pwd)/assets/engine/unidbg"
 UNIDBG_DEX="build/unidbg-dex"
+
+# unidbg-api 是核心接口模块（Emulator / Memory / Module / HookListener /
+# Unwinder / Family ...），unidbg-android 依赖它但本身不包含它。
+# 缺了它，dex 能转、AndroidEmulator 也能找到，
+# 但内存读写 / hook / 回溯一调用就炸——因为那些类根本不在 dex 里。
+# 本地通常不会手动放这个 jar，构建时自动补一次。
+UNIDBG_API_VER="0.9.8"
+if [ ! -f "$UNIDBG_SRC/unidbg-api.jar" ]; then
+  echo "  补齐 unidbg-api-${UNIDBG_API_VER}.jar（核心接口模块）"
+  for u in \
+    "https://repo1.maven.org/maven2/com/github/zhkl0228/unidbg-api/${UNIDBG_API_VER}/unidbg-api-${UNIDBG_API_VER}.jar" \
+    "https://repo.maven.apache.org/maven2/com/github/zhkl0228/unidbg-api/${UNIDBG_API_VER}/unidbg-api-${UNIDBG_API_VER}.jar"; do
+    if command -v curl >/dev/null 2>&1; then
+      curl -fsSL -o "$UNIDBG_SRC/unidbg-api.jar" "$u" 2>/dev/null && break
+    elif command -v wget >/dev/null 2>&1; then
+      wget -q -O "$UNIDBG_SRC/unidbg-api.jar" "$u" 2>/dev/null && break
+    fi
+  done
+  if [ -f "$UNIDBG_SRC/unidbg-api.jar" ]; then
+    SZ=$(wc -c < "$UNIDBG_SRC/unidbg-api.jar" 2>/dev/null || echo 0)
+    if [ "$SZ" -lt 10000 ]; then
+      echo "  ! 下载到的 unidbg-api.jar 异常（${SZ} 字节），已丢弃"
+      rm -f "$UNIDBG_SRC/unidbg-api.jar"
+    else
+      echo "    ok $(( SZ / 1024 )) KB"
+    fi
+  else
+    echo "  ! 未能自动获取 unidbg-api.jar —— unidbg 将不可用"
+    echo "    手动方式：下载后放到 assets/engine/unidbg/unidbg-api.jar"
+  fi
+fi
 rm -rf "$UNIDBG_DEX"; mkdir -p "$UNIDBG_DEX"
 if [ -d "$UNIDBG_SRC" ]; then
   JARS=""

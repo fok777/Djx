@@ -102,8 +102,35 @@ public final class UnidbgEngine {
             dexLoader = new dalvik.system.DexClassLoader(
                     cp.toString(), opt.getAbsolutePath(), null,
                     UnidbgEngine.class.getClassLoader());
-            // 冒烟：能不能拿到关键类
-            Class.forName("com.github.unidbg.AndroidEmulator", false, dexLoader);
+            // 冒烟：不只验 AndroidEmulator，还要验 unidbg-api 的核心类。
+            // 只验 AndroidEmulator 会漏掉大问题——它在 unidbg-android 里，
+            // 但它依赖的 Memory / spi / unwind 等都在 unidbg-api 里。
+            // api jar 没打进来的话，类加载就会失败或方法调用时炸。
+            String[] apiCore = {
+                "com.github.unidbg.Emulator",
+                "com.github.unidbg.memory.Memory",
+                "com.github.unidbg.Module",
+                "com.github.unidbg.pointer.UnicornPointer",
+                "com.github.unidbg.spi.HookListener",
+                "com.github.unidbg.unwind.Unwinder",
+                "com.github.unidbg.Family",
+            };
+            java.util.List<String> bad = new java.util.ArrayList<String>();
+            for (String cn : apiCore) {
+                try {
+                    Class.forName(cn, false, dexLoader);
+                } catch (Throwable t) {
+                    bad.add(cn);
+                }
+            }
+            if (!bad.isEmpty()) {
+                loadError = "unidbg-api 核心类缺失: " + bad
+                        + "（unidbg-api.jar 未打进 dex；"
+                        + "只有 unidbg-android + unidbg-unicorn2 不够，"
+                        + "内存读写/hook/回溯都依赖 api 模块）";
+                Log.e(TAG, loadError);
+                return false;
+            }
             nativeLoaded = true;
             loadError = null;
             Log.i(TAG, "unidbg 就绪，dex " + dexes.size() + " 个");
@@ -297,7 +324,7 @@ public final class UnidbgEngine {
             throw new NoSuchMethodException(k.getName() + "." + name + argTypes(types));
         }
         m.setAccessible(true);
-        return m.invoke(target, args);
+        return m.invoke(target, coerce(m.getParameterTypes(), args));
     }
 
     private static java.lang.reflect.Method findMethod(Class<?> k, String name, Class<?>[] types) {
@@ -305,19 +332,123 @@ public final class UnidbgEngine {
         try {
             return k.getMethod(name, types);
         } catch (NoSuchMethodException ignored) {}
-        // 放宽：按参数个数 + 可赋值匹配
+        // 放宽：按参数个数 + 可赋值匹配。
+        // 注意：必须做基本类型/包装类互认——
+        //   int.class.isAssignableFrom(Integer.class) 恒为 false，
+        //   不做这一步的话 malloc(int) 这类方法永远匹配不上，
+        //   findMethod 返回 null → NoSuchMethodException。
         for (java.lang.reflect.Method m : k.getMethods()) {
             if (!m.getName().equals(name)) continue;
             Class<?>[] ps = m.getParameterTypes();
             if (ps.length != types.length) continue;
             boolean ok = true;
             for (int i = 0; i < ps.length; i++) {
-                if (types[i] == Object.class) continue;
-                if (!ps[i].isAssignableFrom(types[i])) { ok = false; break; }
+                if (types[i] == Object.class) continue;      // 调用方没给具体类型
+                if (assignable(ps[i], types[i])) continue;
+                ok = false;
+                break;
             }
             if (ok) return m;
         }
         return null;
+    }
+
+    /** 形参 p 是否接受实参类型 a（含基本类型 ↔ 包装类、数值宽化）。 */
+    private static boolean assignable(Class<?> p, Class<?> a) {
+        if (p.isAssignableFrom(a)) return true;
+        Class<?> pb = box(p);
+        Class<?> ab = box(a);
+        if (pb.isAssignableFrom(ab)) return true;            // int ← Integer
+        if (pb == ab) return true;                            // int ← long 的装箱? 下面再判
+        // 数值宽化：int 形参接受 byte/short/char；long 接受 int 等
+        if (isNum(p) && isNum(a)) return true;
+        return false;
+    }
+
+    private static boolean isNum(Class<?> c) {
+        return c == byte.class || c == short.class || c == int.class
+                || c == long.class || c == float.class || c == double.class
+                || c == char.class || c == Byte.class || c == Short.class
+                || c == Integer.class || c == Long.class || c == Float.class
+                || c == Double.class || c == Character.class;
+    }
+
+    /**
+     * 按形参类型把实参转成真正可传给 Method.invoke 的值。
+     * findMethod 放宽匹配后，实参类型往往和形参不完全一致
+     * （比如传 String "0x4000" 给 long 形参），不转换会
+     * 直接 IllegalArgumentException。
+     */
+    private static Object[] coerce(Class<?>[] ps, Object[] args) {
+        if (ps == null) return args == null ? new Object[0] : args;
+        Object[] out = new Object[ps.length];
+        for (int i = 0; i < ps.length; i++) {
+            Object a = (args == null || i >= args.length) ? null : args[i];
+            out[i] = coerceOne(ps[i], a);
+        }
+        return out;
+    }
+
+    private static Object coerceOne(Class<?> p, Object a) {
+        if (a == null) {
+            if (!p.isPrimitive()) return null;
+            if (p == boolean.class) return Boolean.FALSE;
+            if (p == char.class) return (char) 0;
+            return 0;   // 数值型基本类型给 0，避免 NPE
+        }
+        if (!p.isPrimitive()) {
+            // 形参是引用型：字符串 → byte[] 这类常见转换
+            if (p == byte[].class && a instanceof String) {
+                return ((String) a).getBytes();
+            }
+            return a;
+        }
+        if (p == long.class) {
+            if (a instanceof Number) return ((Number) a).longValue();
+            return parseLong(a.toString());
+        }
+        if (p == int.class) {
+            if (a instanceof Number) return ((Number) a).intValue();
+            return (int) parseLong(a.toString());
+        }
+        if (p == short.class) {
+            if (a instanceof Number) return ((Number) a).shortValue();
+            return (short) parseLong(a.toString());
+        }
+        if (p == byte.class) {
+            if (a instanceof Number) return ((Number) a).byteValue();
+            return (byte) parseLong(a.toString());
+        }
+        if (p == boolean.class) {
+            if (a instanceof Boolean) return a;
+            return Boolean.parseBoolean(a.toString());
+        }
+        if (p == double.class) {
+            if (a instanceof Number) return ((Number) a).doubleValue();
+            return Double.parseDouble(a.toString());
+        }
+        if (p == float.class) {
+            if (a instanceof Number) return ((Number) a).floatValue();
+            return Float.parseFloat(a.toString());
+        }
+        if (p == char.class) {
+            if (a instanceof Character) return a;
+            String t = a.toString();
+            return t.isEmpty() ? (char) 0 : t.charAt(0);
+        }
+        return a;
+    }
+
+    /** 支持 0x 前缀、十进制、十六进制字符串。 */
+    private static long parseLong(String s) {
+        String t = s.trim();
+        try {
+            if (t.toLowerCase().startsWith("0x")) return Long.parseLong(t.substring(2), 16);
+            if (t.toLowerCase().endsWith("l")) t = t.substring(0, t.length() - 1);
+            return Long.parseLong(t);
+        } catch (Exception e1) {
+            try { return Long.parseLong(t, 16); } catch (Exception e2) { return 0L; }
+        }
     }
 
     private static Class<?> box(Class<?> c) {
