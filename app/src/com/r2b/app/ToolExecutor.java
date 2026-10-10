@@ -1543,6 +1543,22 @@ public final class ToolExecutor {
             out.put("engine", "unidbg (ART + unicorn2)");
             out.put("heuristic", false);
 
+            // 交给引擎层按工具名执行具体操作（内存/hook/寄存器/回溯…）
+            java.util.Map<String, String> ub = new java.util.HashMap<String, String>();
+            ub.put("a1", opt(a, "addr", "address", "offset", "size", "length", "len"));
+            ub.put("a2", opt(a, "value", "bytes", "hex", "data", "content"));
+            ub.put("a3", opt(a, "extra"));
+            String r = UnidbgEngine.op(n, sess, ub);
+            if (r != null) {
+                out.put("result", r);
+                out.put("op", n);
+                if (r.contains("失败") || r.contains("不可用")) {
+                    out.put("heuristic", true);
+                    out.put("note", "报错里带『可用方法』清单的，按清单改签名即可修复");
+                }
+                return;
+            }
+
             String sym = opt(a, "symbol", "sym", "name");
             if (sym != null) {
                 out.put("call_result", UnidbgEngine.callSymbol(sess, mod, sym));

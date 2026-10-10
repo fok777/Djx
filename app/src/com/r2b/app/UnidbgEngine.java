@@ -304,6 +304,329 @@ public final class UnidbgEngine {
         return sb.toString();
     }
 
+    // ---------- 真实操作（内存 / hook / 寄存器 / 回溯） ----------
+
+    /**
+     * 按工具名执行一个 unidbg 操作。
+     *
+     * 说明：unidbg 的方法签名随版本有出入，且沙盒内无法真机验证。
+     * 所以这里统一用"多候选方法名 + 失败时回传真实签名"的写法：
+     * 调不通时把目标类上实际可用的同名方法列出来，
+     * 看一眼就能把签名改对，而不是盲猜。
+     */
+    public static String op(String n, Session s, java.util.Map<String, String> arg) {
+        if (s == null || s.emulator == null) return "会话未就绪";
+        String a1 = arg.get("a1");
+        String a2 = arg.get("a2");
+        String a3 = arg.get("a3");
+        try {
+            Object emu = s.emulator;
+            Object mem = call(emu, "getMemory");
+
+            // ---- 内存 ----
+            if (n.equals("Ub_Alloc") || n.equals("Ub_Malloc")) {
+                int size = (int) parseLong(a1 == null ? "1024" : a1);
+                Object p = tryFirst(mem, new String[]{"malloc", "allocate"}, size);
+                return "ptr=" + ptrStr(p) + " size=" + size;
+            }
+            if (n.equals("Ub_Free")) {
+                long addr = parseLong(a1);
+                tryFirst(mem, new String[]{"free"}, addr);
+                return "freed " + hex(addr);
+            }
+            if (n.equals("Ub_Dump")) {
+                long addr = parseLong(a1);
+                int len = (int) parseLong(a2 == null ? "256" : a2);
+                byte[] d = readBytes(mem, addr, len);
+                return "addr=" + hex(addr) + " len=" + (d == null ? 0 : d.length)
+                        + "\n" + (d == null ? "" : hexDump(d));
+            }
+            if (n.equals("Ub_Write")) {
+                long addr = parseLong(a1);
+                byte[] d = (a2 != null && a2.startsWith("hex:")) ? parseHex(a2.substring(4))
+                        : (a2 == null ? new byte[0] : a2.getBytes());
+                writeBytes(mem, addr, d);
+                return "written " + d.length + " bytes @ " + hex(addr);
+            }
+            if (n.equals("Ub_Read_String")) {
+                long addr = parseLong(a1);
+                try {
+                    Object r = tryFirst(mem, new String[]{"readCString", "readCString"}, addr);
+                    return r == null ? "(null)" : String.valueOf(r);
+                } catch (Throwable t) {
+                    byte[] d = readBytes(mem, addr, 256);
+                    if (d == null) return "读取失败";
+                    int e = d.length;
+                    for (int i = 0; i < d.length; i++) if (d[i] == 0) { e = i; break; }
+                    return new String(d, 0, e);
+                }
+            }
+            if (n.equals("Ub_Patch")) {
+                long addr = parseLong(a1);
+                byte[] d = parseHex(a2 == null ? "" : a2);
+                writeBytes(mem, addr, d);
+                return "patched " + d.length + " bytes @ " + hex(addr);
+            }
+            if (n.equals("Ub_Search")) {
+                return "内存搜索需遍历区间，请用 Ub_Dump 分段查看后人工定位";
+            }
+
+            // ---- 寄存器 ----
+            if (n.equals("Ub_Regs")) {
+                return dumpRegs(emu);
+            }
+            if (n.equals("Ub_Backtrace") || n.equals("Ub_Print_Stack")) {
+                return backtrace(emu);
+            }
+
+            // ---- Hook ----
+            if (n.equals("Ub_Hook") || n.equals("Ub_Callback_Install")
+                    || n.equals("Ub_Syscall") || n.equals("Ub_Stub")) {
+                long addr = parseLong(a1);
+                Object backend = call(emu, "getBackend");
+                return installHook(emu, backend, addr, n);
+            }
+            if (n.equals("Ub_Hook_Hits")) {
+                return "hook 命中计数：" + hookHits.size() + " 条\n" + hookHits.toString();
+            }
+
+            // ---- 状态 ----
+            if (n.equals("Ub_Save_State") || n.equals("Ub_Restore_State")) {
+                Object backend = call(emu, "getBackend");
+                if (n.equals("Ub_Save_State")) {
+                    savedCtx = tryFirst(backend,
+                            new String[]{"context_alloc", "contextAlloc"});
+                    return savedCtx == null ? "context_alloc 不可用" : "状态已保存";
+                }
+                if (savedCtx == null) return "没有已保存的状态";
+                tryFirst(backend, new String[]{"context_restore", "contextRestore"}, savedCtx);
+                return "状态已恢复";
+            }
+
+            // ---- 模块 / 反汇编 ----
+            if (n.equals("Ub_Modules")) {
+                java.util.List<String> out = new java.util.ArrayList<String>();
+                try {
+                    Object r = call(emu, "getLoadedModule");
+                    return "loaded=" + (r == null ? "none" : String.valueOf(r));
+                } catch (Throwable t) {
+                    return "模块列表: " + t.getMessage();
+                }
+            }
+            if (n.equals("Ub_Disasm")) {
+                long addr = parseLong(a1);
+                int len = (int) parseLong(a2 == null ? "64" : a2);
+                byte[] d = readBytes(mem, addr, len);
+                return d == null ? "读取失败" : hexDump(d);
+            }
+            if (n.equals("Ub_Info") || n.equals("Ub_Env")) {
+                return "pid=" + safeCall(emu, "getPid")
+                        + " arch=" + (safeCall(emu, "is64Bit"))
+                        + " process=" + safeCall(emu, "getProcessName");
+            }
+            if (n.equals("Ub_Stdout_Capture")) {
+                return "stdout 捕获需在创建 VM 时设置重定向，当前未启用";
+            }
+            if (n.equals("Ub_Struct_Build")) {
+                return "结构体构建需按目标布局逐字段读写，请用 Ub_Dump + Ub_Write 组合";
+            }
+            if (n.equals("Ub_File_Read") || n.equals("Ub_File_Write")) {
+                return "文件读写走 Os_* 工具（unidbg 虚拟文件系统需额外配置）";
+            }
+            if (n.equals("Ub_MultiCall") || n.equals("Ub_Sequence")) {
+                return "批量调用请逐个使用 Ub_Call / Ub_Call_Offset";
+            }
+            if (n.equals("Ub_Jni_Callback") || n.equals("Ub_Register_JNI")) {
+                return "JNI 回调需实现 unidbg 的 Jni 接口，当前未接入";
+            }
+            return null;   // 未识别，交给调用方
+        } catch (Throwable t) {
+            return "操作失败: " + t.getClass().getSimpleName() + ": " + t.getMessage();
+        }
+    }
+
+    private static final java.util.List<String> hookHits =
+            java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
+    private static volatile Object savedCtx = null;
+
+    /** 依次尝试多个方法名，全失败时抛异常（带真实签名清单）。 */
+    private static Object tryFirst(Object target, String[] names, Object... args)
+            throws Exception {
+        Throwable last = null;
+        for (String nm : names) {
+            try {
+                return call(target, nm, args);
+            } catch (Throwable t) {
+                last = t;
+            }
+        }
+        throw new RuntimeException(names[0] + " 不可用: "
+                + (last == null ? "" : last.getMessage())
+                + " | 可用方法: " + listMethods(target.getClass(), names[0]));
+    }
+
+    /** 列出某类上同名方法的真实签名，调不通时回传，避免盲猜。 */
+    private static String listMethods(Class<?> k, String name) {
+        StringBuilder sb = new StringBuilder();
+        for (java.lang.reflect.Method m : k.getMethods()) {
+            if (!m.getName().equals(name)) continue;
+            sb.append(m.getName()).append("(");
+            Class<?>[] ps = m.getParameterTypes();
+            for (int i = 0; i < ps.length; i++) {
+                if (i > 0) sb.append(",");
+                sb.append(ps[i].getSimpleName());
+            }
+            sb.append(") ");
+        }
+        return sb.length() == 0 ? "无同名方法" : sb.toString().trim();
+    }
+
+    private static String ptrStr(Object p) {
+        if (p == null) return "null";
+        try { return String.valueOf(call(p, "peer")); } catch (Throwable t) { return p.toString(); }
+    }
+
+    private static String hex(long v) { return "0x" + Long.toHexString(v); }
+
+    private static byte[] readBytes(Object mem, long addr, int len) {
+        try {
+            Object p = tryFirst(mem, new String[]{"pointer"}, addr);
+            Object r = tryFirst(p, new String[]{"getByteArray"}, 0L, len);
+            return (byte[]) r;
+        } catch (Throwable t) {
+            try {
+                Object r = tryFirst(mem, new String[]{"read"}, addr, len);
+                return (byte[]) r;
+            } catch (Throwable t2) {
+                return null;
+            }
+        }
+    }
+
+    private static void writeBytes(Object mem, long addr, byte[] d) throws Exception {
+        try {
+            Object p = tryFirst(mem, new String[]{"pointer"}, addr);
+            tryFirst(p, new String[]{"write"}, d);
+            return;
+        } catch (Throwable ignored) {}
+        tryFirst(mem, new String[]{"write"}, addr, d);
+    }
+
+    private static String dumpRegs(Object emu) {
+        StringBuilder sb = new StringBuilder();
+        try {
+            Object ctx = call(emu, "getRegisterContext");
+            for (int i = 0; i < 29; i++) {
+                Object v;
+                try {
+                    v = call(ctx, "getXLong", i);
+                } catch (Throwable t) {
+                    try { v = call(ctx, "getIntArg", i); } catch (Throwable t2) { continue; }
+                }
+                sb.append("x").append(i).append("=").append(hex(toLong(v))).append("\n");
+            }
+            try { sb.append("sp=").append(hex(toLong(call(ctx, "getStackPointer")))); }
+            catch (Throwable ignored) {}
+        } catch (Throwable t) {
+            sb.append("getRegisterContext 不可用: ").append(t.getMessage())
+              .append(" | ").append(listMethods(emu.getClass(), "getRegisterContext"));
+        }
+        return sb.toString();
+    }
+
+    private static long toLong(Object v) {
+        if (v == null) return 0;
+        if (v instanceof Number) return ((Number) v).longValue();
+        try { return parseLong(String.valueOf(v)); } catch (Exception e) { return 0; }
+    }
+
+    private static String backtrace(Object emu) {
+        try {
+            Object u = call(emu, "getUnwinder");
+            Object frames = call(u, "unwind");
+            if (frames == null) return "(空)";
+            StringBuilder sb = new StringBuilder();
+            for (Object f : (Iterable<?>) frames) sb.append(f).append("\n");
+            return sb.toString();
+        } catch (Throwable t) {
+            return "回溯不可用: " + t.getMessage()
+                    + " | 可用: " + listMethods(emu.getClass(), "getUnwinder");
+        }
+    }
+
+    /** 安装地址 hook。用动态代理实现 unidbg 的回调接口。 */
+    private static String installHook(Object emu, Object backend, long addr, String tool) {
+        try {
+            Class<?>[] ifaces = null;
+            Class<?> hl = null;
+            try {
+                hl = Class.forName("com.github.unidbg.spi.HookListener", true, dexLoader);
+            } catch (Throwable t) {
+                return "HookListener 不可用: " + t.getMessage();
+            }
+            final long hookAddr = addr;
+            Object proxy = java.lang.reflect.Proxy.newProxyInstance(
+                    hl.getClassLoader(), new Class<?>[]{hl},
+                    new java.lang.reflect.InvocationHandler() {
+                        public Object invoke(Object p, java.lang.reflect.Method m,
+                                             Object[] args) throws Throwable {
+                            String mn = m.getName();
+                            if ("onAttach".equals(mn) || "hook".equals(mn)) {
+                                hookHits.add("hit@" + hex(hookAddr)
+                                        + " (" + (args == null ? 0 : args.length) + " args)");
+                            }
+                            if (mn.startsWith("onAttach") || mn.startsWith("hook")) {
+                                return null;
+                            }
+                            if (mn.equals("detach")) return null;
+                            if (m.getReturnType() == boolean.class) return Boolean.TRUE;
+                            return null;
+                        }
+                    });
+            try {
+                call(backend, "hook_add_new", proxy, addr, addr + 4, null);
+            } catch (Throwable t1) {
+                try {
+                    call(emu, "attach", addr, proxy);
+                } catch (Throwable t2) {
+                    return "hook 安装失败: " + t2.getMessage()
+                            + " | backend: " + listMethods(backend.getClass(), "hook_add_new")
+                            + " | emu: " + listMethods(emu.getClass(), "attach");
+                }
+            }
+            return tool + " 已安装 @ " + hex(addr) + "（命中会记入 Ub_Hook_Hits）";
+        } catch (Throwable t) {
+            return "hook 失败: " + t.getMessage();
+        }
+    }
+
+    private static String safeCall(Object target, String name) {
+        try { return String.valueOf(call(target, name)); }
+        catch (Throwable t) { return "?"; }
+    }
+
+    private static byte[] parseHex(String s) {
+        String t = s.replaceAll("[\\s,\\-\\:]", "");
+        if (t.toLowerCase().startsWith("0x")) t = t.substring(2);
+        if (t.length() % 2 != 0) t = "0" + t;
+        byte[] out = new byte[t.length() / 2];
+        for (int i = 0; i < out.length; i++) {
+            out[i] = (byte) Integer.parseInt(t.substring(i * 2, i * 2 + 2), 16);
+        }
+        return out;
+    }
+
+    private static String hexDump(byte[] d) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < d.length; i++) {
+            sb.append(String.format("%02x", d[i]));
+            if (i % 16 == 15) sb.append("\n");
+            else if (i % 8 == 7) sb.append("  ");
+            else sb.append(" ");
+        }
+        return sb.toString();
+    }
+
     public static String lastError() {
         return loadError;
     }
