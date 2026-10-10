@@ -147,7 +147,15 @@ public final class FridaChannel {
         }
 
         String tgt = (target == null || target.trim().isEmpty()) ? "" : target.trim();
-        String sel = tgt.matches("-?\\d+") ? ("-p " + tgt) : ("-n " + tgt.isEmpty() ? "" : tgt);
+        // 纯数字按 pid（-p），否则按进程名（-n）
+        String sel;
+        if (tgt.isEmpty()) {
+            sel = "";
+        } else if (tgt.matches("-?\\d+")) {
+            sel = "-p " + tgt;
+        } else {
+            sel = "-n " + tgt;
+        }
 
         // 1) 本机 frida CLI
         File cli = EngineUnpacker.findExecutable(c, "frida");
