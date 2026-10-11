@@ -900,14 +900,49 @@ public final class ToolExecutor {
         out.put("is_pie", elf.isPie);
         out.put("stack", "Flutter (Dart AOT)");
 
+        // 先探测 Dart 版本：3.13 的门槛必须在尝试之前就给出结论，
+        // 否则会白白跑一遍注定失败的编译/执行。
+        String dartVer = detectDartVersionFromFlutter(apk);
+        if (dartVer != null) out.put("dart_version_detected", dartVer);
+        boolean over313 = dartAtLeast(dartVer, "3.13");
+
+        // blutter.py 需要「含 libapp.so + libflutter.so 的目录」才能自动检测版本，
+        // 所以先把两个 so 提到同一目录，而不是只给单个 libapp.so。
+        File libDir = new File(workDir(), "blutter_libs");
+        if (!libDir.exists()) libDir.mkdirs();
+        try {
+            java.io.InputStream is = new java.io.FileInputStream(so);
+            java.io.FileOutputStream os = new java.io.FileOutputStream(
+                    new File(libDir, "libapp.so"));
+            byte[] buf = new byte[65536]; int rr;
+            while ((rr = is.read(buf)) > 0) os.write(buf, 0, rr);
+            is.close(); os.close();
+        } catch (Exception ignored) {}
+        for (String s3 : info.libs) {
+            if (!s3.endsWith("libflutter.so")) continue;
+            File fl = NativeAnalyzer.extractEntry(apk, s3, workDir());
+            if (fl == null) continue;
+            try {
+                java.io.InputStream is = new java.io.FileInputStream(fl);
+                java.io.FileOutputStream os = new java.io.FileOutputStream(
+                        new File(libDir, "libflutter.so"));
+                byte[] buf = new byte[65536]; int rr;
+                while ((rr = is.read(buf)) > 0) os.write(buf, 0, rr);
+                is.close(); os.close();
+            } catch (Exception ignored) {}
+            break;
+        }
+        out.put("blutter_lib_dir", libDir.getAbsolutePath());
+
         // 优先 Termux：真实 blutter 产出完整的 asm/pp.txt/objs.txt
         TermuxExecutor tx = termux();
         if (tx.usable()) {
             File outDir = new File(workDir(), "blutter_out");
             if (!outDir.exists()) outDir.mkdirs();
-            String bcmd = blutterTermuxCmd(a.optString("dart_version", null),
-                    so.getAbsolutePath(), outDir);
-            TermuxExecutor.Result r = tx.run(bcmd, 300000);
+            String bcmd = blutterTermuxCmd(dartVer, libDir, outDir);
+            out.put("termux_cmd", bcmd);
+            // 编译 Dart VM 很慢（几十分钟），超时给足；编译失败也要回传日志
+            TermuxExecutor.Result r = tx.run(bcmd, 1800000);
             if (r.ok && r.exitCode == 0) {
                 JSONObject parsed = BlutterOutput.parse(outDir);
                 out.put("engine", "blutter (Termux, 真实)");
@@ -926,10 +961,29 @@ public final class ToolExecutor {
                 }
                 return;
             }
+            if (r.stdout != null && r.stdout.contains("NO_BLUTTER_PY")) {
+                out.put("blutter_missing", true);
+                out.put("install_guide",
+                        "Termux 内执行："
+                        + "pip install requests pyelftools && "
+                        + "pkg install -y git cmake ninja build-essential "
+                        + "pkg-config libicu capstone fmt；"
+                        + "然后 git clone https://github.com/dedshit/blutter-termux "
+                        + "（该 fork 已适配 Dart 3.13 单快照，原版不支持）");
+            }
+            if (over313) {
+                out.put("dart313_blocker", DART313_BLOCKER);
+                out.put("fix", "用 dedshit/blutter-termux（已打 3.13 补丁），"
+                        + "原版 worawit/blutter 在 3.13 上编译不过");
+            }
             out.put("termux_blutter_failed", r.error != null ? r.error : ("exit=" + r.exitCode));
             if (r.stdout != null && r.stdout.length() > 0) {
                 out.put("partial_output", r.stdout.substring(0, Math.min(2000, r.stdout.length())));
             }
+        } else if (over313) {
+            out.put("dart313_blocker", DART313_BLOCKER);
+            out.put("fix", "必须走 Termux 编译路线（App 内预编译变体最高 3.12.1，"
+                    + "且均为旧源码编译，不含 3.13 补丁）");
         }
 
         // 先判快照符号命名方案：新命名的 libapp.so 用旧 blutter 跑不出结果，
@@ -942,11 +996,8 @@ public final class ToolExecutor {
         String buildId = readSnapshotBuildId(so, elf);
         if (buildId != null) out.put("snapshot_hash", buildId);
 
-        // Dart 版本：优先从 libflutter.so 的明文版本串取，
-        // 取不到再用调用方传的 dart_version，最后留空
-        String dartVer = detectDartVersionFromFlutter(apk);
-        if (dartVer != null) out.put("dart_version_detected", dartVer);
-        else dartVer = a.optString("dart_version", null);
+        // 版本已在前面探测；这里只补充调用方显式指定的情况
+        if (dartVer == null) dartVer = a.optString("dart_version", null);
         if (dartVer != null) out.put("dart_version_used", dartVer);
 
         java.util.List<String> variants = blutterVariants();
@@ -1254,16 +1305,67 @@ public final class ToolExecutor {
     }
 
     /** 拼 Termux 里的 blutter 命令：优先已装的 blutter，其次用释放出来的 PIE。 */
-    private String blutterTermuxCmd(String dartVer, String soPath, File outDir) {
-        String exe = "blutter";
-        File local = blutterBinary(dartVer);
-        if (local != null) {
-            exe = "'" + local.getAbsolutePath() + "'";
-        }
-        return "if ! command -v blutter >/dev/null 2>&1; then "
-                + "EXE=" + exe + "; else EXE=blutter; fi; "
-                + "$EXE -i '" + soPath + "' -o '" + outDir.getAbsolutePath() + "'";
+    /**
+     * 生成 Termux 下的 blutter 命令。
+     *
+     * 关键区别：这里走的是 blutter.py 脚本，不是直接调预编译可执行文件。
+     * 原因——blutter 必须针对目标 Dart 版本编译对应版本的 Dart VM 才能解析快照，
+     * 预编译的二进制只对编译它时那个版本有效。blutter.py 会：
+     *   1) 从 libflutter.so 自动检测 Dart 版本
+     *   2) 若 bin/ 下没有对应版本的可执行文件，自动拉 Dart SDK 源码并编译
+     * 所以必须把「含 libapp.so + libflutter.so 的目录」整个传进去，
+     * 只传单个 so 的话脚本无法检测版本（会要求 --dart-version）。
+     */
+    private String blutterTermuxCmd(String dartVer, File libDir, File outDir) {
+        String dirArg = "'" + libDir.getAbsolutePath() + "'";
+        String outArg = "'" + outDir.getAbsolutePath() + "'";
+        // 只有当已知版本且目录内没有 libflutter.so 时，才退化到 --dart-version 单文件模式
+        String withVer = (dartVer != null && dartVer.length() > 0)
+                ? " --dart-version " + dartVer + "_android_arm64" : "";
+        return "cd ~ 2>/dev/null; "
+                + "for B in blutter/blutter.py ~/blutter/blutter.py "
+                + "blutter-termux/blutter.py ~/blutter-termux/blutter.py; do "
+                + "if [ -f "$B" ]; then python3 "$B" " + dirArg + " " + outArg
+                + "; exit $?; fi; done; "
+                + "echo NO_BLUTTER_PY";
     }
+
+    /** Dart 版本比较：a >= b ? */
+    private static boolean dartAtLeast(String a, String b) {
+        if (a == null) return false;
+        try {
+            String[] x = a.split("[-.]");
+            String[] y = b.split("\.");
+            int[] p = new int[]{0, 0, 0}, q = new int[]{0, 0, 0};
+            for (int i = 0; i < 3; i++) {
+                if (i < x.length) p[i] = Integer.parseInt(x[i]);
+                if (i < y.length) q[i] = Integer.parseInt(y[i]);
+            }
+            for (int i = 0; i < 3; i++) {
+                if (p[i] != q[i]) return p[i] > q[i];
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Dart 3.13 的门槛说明。
+     *
+     * 3.13 移除了 OBJECT_STORE_STUB_CODE_LIST 宏（stub 迁移进 VM_STUB_CODE_LIST），
+     * blutter 原版源码直接依赖该宏，编译不过。
+     * 同时 3.13 起快照改为单一合并快照（_kDartSnapshotData / _kDartSnapshotText），
+     * 旧版按 _kDartVmSnapshotData / _kDartIsolateSnapshotData 定位，找不到入口。
+     * 这两个是源码级变更，预编译二进制无法绕过——必须重编译。
+     */
+    private static final String DART313_BLOCKER =
+            "Dart 3.13 起有两处源码级变更，预编译 blutter 二进制无解："
+            + "① OBJECT_STORE_STUB_CODE_LIST 宏被移除（stub 并入 VM_STUB_CODE_LIST），"
+            + "原版 blutter 源码依赖它，编译不过；"
+            + "② 快照改为单一合并快照（_kDartSnapshotData / _kDartSnapshotText），"
+            + "旧版按 _kDartVmSnapshotData / _kDartIsolateSnapshotData 定位，找不到入口。"
+            + "必须用打过 3.13 补丁的 blutter 源码重新编译。";
 
     /**
      * Capstone 独立反汇编：直接对裸字节/文件偏移反汇编，
