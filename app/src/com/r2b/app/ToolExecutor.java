@@ -2465,8 +2465,10 @@ public final class ToolExecutor {
             if (miss != null && !miss.isEmpty()) {
                 out.put("libs_missing", new JSONArray(miss));
             }
+            // 执行成功才收工；失败（含 :r2 崩溃）继续往下走 Termux 降级路线。
+            if (rr.ok) return;
+            out.put("r2_failed", true);
             }
-            return;
         }
 
         // 2) 降级 A：Termux（若用户装了并授权）
