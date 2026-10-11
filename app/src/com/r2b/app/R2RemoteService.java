@@ -139,7 +139,7 @@ public class R2RemoteService extends Service {
             java.util.List<CapstoneJni.Insn> insns =
                     CapstoneJni.disasm(code, addr, arch, mode, count);
             if (insns == null) {
-                return "{\"error\":\"capstone 不可用: \" + CapstoneJni.lastError() + "\"}";
+                return "{\"error\":\"capstone 不可用: " + CapstoneJni.lastError() + "\"}";
             }
             org.json.JSONArray arr = new org.json.JSONArray();
             for (CapstoneJni.Insn n : insns) {
