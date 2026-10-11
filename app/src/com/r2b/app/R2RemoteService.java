@@ -146,7 +146,7 @@ public class R2RemoteService extends Service {
                 org.json.JSONObject j = new org.json.JSONObject();
                 j.put("address", n.address);
                 j.put("mnemonic", n.mnemonic);
-                j.put("op_str", n.opStr);
+                j.put("operands", n.operands);
                 j.put("bytes", n.bytes);
                 arr.put(j);
             }

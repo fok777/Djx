@@ -2495,10 +2495,12 @@ public final class ToolExecutor {
         // 3) 降级 B：内置 ELF 解析（只能给符号/字符串，没有反汇编）
         out.put("engine", "内置 ELF 解析（非 radare2）");
         out.put("heuristic", true);
+        java.util.List<String> repMiss = Radare2Bridge.missingLibs();
         out.put("error", "radare2 不可用: "
-                + (rep.error != null ? rep.error : "未知原因"));
-        out.put("hint", "需要 files/engine/radare2/ 下的 23 个 libr_*.so "
-                + "+ libr2aibridge.so，且设备须为 arm64");
+                + (repMiss != null && !repMiss.isEmpty()
+                ? ("缺少库 " + repMiss) : "无法启动 :r2 隔离进程或桥初始化失败"));
+        out.put("hint", "radare2 全套 libr_*.so 位于 nativeLibraryDir（非私有目录），"
+                + "且设备须为 arm64；执行在 :r2 独立进程内");
         if (target != null && new File(target).isFile()) {
             try {
                 NativeAnalyzer.ElfInfo elf = NativeAnalyzer.parseElf(new File(target));
