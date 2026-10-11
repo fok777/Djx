@@ -932,6 +932,23 @@ public final class ToolExecutor {
             }
         }
 
+        // 先判快照符号命名方案：新命名的 libapp.so 用旧 blutter 跑不出结果，
+        // 必须在调用前就说清楚，否则会静默回退成"看起来分析过了"。
+        DartSnapshot snap = detectDartSnapshot(elf);
+        out.put("snapshot_scheme", snap.scheme);
+        out.put("snapshot_symbols", new JSONArray(snap.found));
+        java.util.List<String> variants = blutterVariants();
+        out.put("blutter_variants", new JSONArray(variants));
+        out.put("blutter_max_variant",
+                variants.isEmpty() ? "无" : variants.get(variants.size() - 1));
+        if ("unified".equals(snap.scheme)) {
+            out.put("warning", "该 libapp.so 用新版统一符号命名"
+                    + "（_kDartSnapshotData / _kDartSnapshotText / _kDartSnapshotBuildId）。"
+                    + "现有 blutter 变体按旧命名"
+                    + "（_kDartVmSnapshotData / _kDartIsolateSnapshotData）定位快照，"
+                    + "几乎必然失败。需要支持新命名的 blutter 版本。");
+        }
+
         // 其次：本地 exec（libblutter_*.so 是 PIE 可执行文件）
         File real = blutterBinary(a.optString("dart_version", null));
         boolean usedReal = false;
@@ -961,8 +978,15 @@ public final class ToolExecutor {
         if (!usedReal) {
             out.put("engine", "内置 ELF 解析");
             out.put("heuristic", true);
-            out.put("note", "未找到可用 blutter 可执行文件，改用内置解析；"
-                    + "完整类结构需桌面端真实 blutter");
+            String why = real == null
+                    ? "nativeLibraryDir 下没有 libblutter_*.so"
+                    : ("blutter 执行失败（blutter_exit_code / blutter_stderr 见上）");
+            if ("unified".equals(snap.scheme)) {
+                why += "；且该 libapp.so 为新符号命名，现有 blutter 变体不支持";
+            }
+            out.put("blutter_unavailable_reason", why);
+            out.put("note", "改用内置解析，只能给出符号/字符串层面的推断；"
+                    + "完整 Dart 类结构需匹配版本的 blutter");
         }
 
         // 内置解析结果（Dart 符号通常带类名前缀）
@@ -1849,10 +1873,58 @@ public final class ToolExecutor {
         }
     }
 
-    /** 找可用的 blutter 可执行文件（按 Dart 版本匹配，名义是 .so 实为 PIE）。 */
+    /** Dart 快照的符号命名方案。 */
+    private static final class DartSnapshot {
+        String scheme;        // "legacy" | "unified" | "unknown"
+        java.util.List<String> found = new java.util.ArrayList<String>();
+    }
+
+    /**
+     * 判断 libapp.so 用的是哪套快照符号命名。
+     *
+     * Dart 改过一次命名：
+     *   旧（legacy，Dart 2.x ~ 3.x 早期）：
+     *     _kDartVmSnapshotData / _kDartVmSnapshotInstructions
+     *     _kDartIsolateSnapshotData / _kDartIsolateSnapshotInstructions
+     *   新（unified，较新 Dart 3.x）：
+     *     _kDartSnapshotData / _kDartSnapshotText / _kDartSnapshotBuildId
+     *
+     * blutter 是按旧命名去定位快照的；遇到新命名的 libapp.so
+     * 它找不到入口，会直接失败或输出空结果。所以必须先判定，
+     * 再决定用哪个 blutter 变体——不匹配就明确告知，
+     * 而不是静默回退到内置解析让人以为"分析过了"。
+     */
+    private DartSnapshot detectDartSnapshot(NativeAnalyzer.ElfInfo elf) {
+        DartSnapshot d = new DartSnapshot();
+        if (elf == null || elf.symbols == null) { d.scheme = "unknown"; return d; }
+        String[] LEGACY = {"_kDartVmSnapshotData", "_kDartVmSnapshotInstructions",
+                "_kDartIsolateSnapshotData", "_kDartIsolateSnapshotInstructions"};
+        String[] UNIFIED = {"_kDartSnapshotData", "_kDartSnapshotText",
+                "_kDartSnapshotBuildId"};
+        int lc = 0, uc = 0;
+        java.util.Set<String> names = new java.util.HashSet<String>();
+        for (NativeAnalyzer.Sym sy : elf.symbols) names.add(sy.name);
+        for (String n : LEGACY) if (names.contains(n)) { lc++; d.found.add(n); }
+        for (String n : UNIFIED) if (names.contains(n)) { uc++; d.found.add(n); }
+        if (uc > 0 && lc == 0) d.scheme = "unified";
+        else if (lc > 0 && uc == 0) d.scheme = "legacy";
+        else if (lc > 0 && uc > 0) d.scheme = "mixed";
+        else d.scheme = "unknown";
+        return d;
+    }
+
+    /**
+     * 找可用的 blutter 可执行文件（按 Dart 版本匹配，名义是 .so 实为 PIE）。
+     *
+     * 注意路径：引擎已迁到 nativeLibraryDir（APK 的 lib/<abi>/），
+     * 私有目录 engine/blutter 下根本没有这些文件。
+     * 之前在这里找，等于永远返回 null，
+     * 于是每次都静默回退到内置解析——看上去"没报错"，
+     * 其实 blutter 一次都没跑过。
+     */
     private File blutterBinary(String dartVer) {
-        File dir = new File(engineRoot(ctx), "blutter");
-        if (!dir.isDirectory()) return null;
+        File dir = EngineUnpacker.nativeDir(ctx);
+        if (dir == null || !dir.isDirectory()) return null;
         File[] fs = dir.listFiles();
         if (fs == null) return null;
         if (dartVer != null && dartVer.length() > 0) {
@@ -1860,6 +1932,16 @@ public final class ToolExecutor {
             for (File f : fs) {
                 if (f.getName().equals(want + ".so")) return f;
             }
+            // 精确版本没命中：找最接近且不超过它的
+            File best = null;
+            for (File f : fs) {
+                String n = f.getName();
+                if (!n.startsWith("libblutter_") || !n.endsWith(".so")) continue;
+                if (best == null || n.compareTo(best.getName()) > 0) {
+                    if (n.compareTo(want + ".so") <= 0) best = f;
+                }
+            }
+            if (best != null) return best;
         }
         // 没指定版本：挑体积最大的（通常是最全的新版）
         File best = null;
@@ -1868,6 +1950,23 @@ public final class ToolExecutor {
             if (best == null || f.length() > best.length()) best = f;
         }
         return best;
+    }
+
+    /** 列出可用的 blutter 变体名，便于判断覆盖到哪个 Dart 版本。 */
+    private java.util.List<String> blutterVariants() {
+        java.util.List<String> out = new java.util.ArrayList<String>();
+        File dir = EngineUnpacker.nativeDir(ctx);
+        if (dir == null) return out;
+        File[] fs = dir.listFiles();
+        if (fs == null) return out;
+        for (File f : fs) {
+            String n = f.getName();
+            if (n.startsWith("libblutter_") && n.endsWith(".so")) {
+                out.add(n.substring("libblutter_".length(), n.length() - 3));
+            }
+        }
+        java.util.Collections.sort(out);
+        return out;
     }
 
     // ---------- Unity ----------
