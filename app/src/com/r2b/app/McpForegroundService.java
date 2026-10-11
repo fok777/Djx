@@ -160,12 +160,29 @@ public class McpForegroundService extends Service {
             Log.w(TAG, "读取 tools_data.json 失败", e);
         }
 
+        // 监听地址：默认只绑 127.0.0.1。
+        //
+        // 之前固定 0.0.0.0 —— 同局域网任何设备都能调这 379 个工具，
+        // 而其中包含 Shell_Command（且支持 use_root 提权）。攻击面太大（P13）。
+        // 现在默认仅本机；需要局域网访问必须在设置里显式开启，
+        // 开启时日志会明确提示风险。
+        String host = McpService.defaultHost();
+        try {
+            android.content.SharedPreferences sp2 =
+                    getSharedPreferences("r2b", MODE_PRIVATE);
+            boolean lan = sp2.getBoolean("lan_expose", false);
+            if (lan) {
+                host = "0.0.0.0";
+                emit("⚠ 已开启局域网暴露：同网段任何设备可调用本服务全部工具"
+                        + "（含 Shell_Command / use_root）。仅在可信网络下使用。");
+            }
+        } catch (Throwable ignored) {}
         mcp = new McpService(this, port, backend == null ? "" : backend, toolsJson,
                 new McpService.Sink() {
                     public void onLog(String line) {
                         emit(line);
                     }
-                });
+                }, host);
         if (mcp.executor() != null && lastApk != null) {
             mcp.executor().setCurrentApk(lastApk);
         }
@@ -192,7 +209,20 @@ public class McpForegroundService extends Service {
                             McpForegroundService.this, "libblutter_3_12_1.so");
                     emit("blutter 可执行文件: " + (fx == null ? "未找到" : fx.getAbsolutePath()));
                     if (fx != null) {
-                        emit("  exec 自检: " + EngineUnpacker.tryExec(fx, "--help"));
+                        // 不再 exec 这个 .so 做自检。
+                        //
+                        // 实测 logcat -b crash 抓到：
+                        //   cmdline = .../lib/arm64/libblutter_3_12_1.so --help
+                        //   signal 11 (SIGSEGV) SEGV_MAPERR fault addr 0x10
+                        //   崩在 __libc_preinit 构造器
+                        // 原因：这些 blutter 变体内嵌静态 libc，作为独立二进制被
+                        // exec 启动时，其 __libc_preinit 与 Android 运行时不兼容。
+                        // 也就是说"能 exec ≠ 能用"，而崩溃记录还会污染 crash 日志，
+                        // 掩盖真正的 radare2 崩溃（故障排查时极容易误判）。
+                        //
+                        // 改为静态 ELF 校验：确认它是合法 ELF、架构匹配、
+                        // 依赖库齐全。真正能否跑起来，由实际调用决定。
+                        emit("  ELF 校验: " + EngineUnpacker.verifyElf(fx));
                     }
                     emit(EngineUnpacker.describe(McpForegroundService.this));
                     // radare2 不再在主进程加载。

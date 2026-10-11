@@ -175,6 +175,71 @@ public final class EngineUnpacker {
     }
 
     /**
+     * 静态 ELF 校验：不 exec，只读头判断"这个文件能不能作为 PIE 可执行文件"。
+     *
+     * 为什么不再 exec —— 实测 logcat -b crash 抓到
+     *   cmdline = .../lib/arm64/libblutter_3_12_1.so --help
+     *   signal 11 (SIGSEGV) SEGV_MAPERR fault addr 0x10 @ __libc_preinit
+     * 这些 blutter 变体内嵌静态 libc，被当作独立二进制 exec 时，
+     * 其 __libc_preinit 构造器与 Android 运行时冲突。
+     * 于是"自检退出码非 0"既不代表真能用也不代表不能用，
+     * 而每次启动都往 crash 日志里写一条 SIGSEGV，
+     * 把真正的 radare2 崩溃淹没掉——排查时极易误判。
+     *
+     * 静态校验能确认的：是合法 ELF、位数/架构正确、类型是 DYN(PIE)、
+     * 所需的 _Unwind_Resume 由同目录 libcpp.so 提供。
+     * 这已经足够排除"文件损坏 / 架构不匹配 / 依赖缺失"三类真实问题。
+     */
+    public static String verifyElf(File exe) {
+        if (exe == null || !exe.isFile()) return "文件不存在";
+        java.io.RandomAccessFile raf = null;
+        try {
+            raf = new java.io.RandomAccessFile(exe, "r");
+            if (raf.length() < 64) return "文件过小，不是有效 ELF";
+            byte[] hdr = new byte[64];
+            raf.readFully(hdr);
+            // ELF magic
+            if (hdr[0] != 0x7f || hdr[1] != 'E' || hdr[2] != 'L' || hdr[3] != 'F') {
+                return "不是 ELF 文件（magic 不匹配）";
+            }
+            boolean elf64 = hdr[4] == 2;
+            boolean little = hdr[5] == 1;
+            int eType = u16(hdr, 16, little);       // 2=ET_EXEC 3=ET_DYN
+            int eMachine = u16(hdr, 18, little);    // 183=EM_AARCH64 40=EM_ARM
+            String arch;
+            if (eMachine == 183) arch = "arm64";
+            else if (eMachine == 40) arch = "arm(32)";
+            else if (eMachine == 62) arch = "x86_64";
+            else arch = "unknown(" + eMachine + ")";
+
+            StringBuilder sb = new StringBuilder();
+            sb.append(elf64 ? "ELF64" : "ELF32").append('/').append(arch);
+            sb.append(eType == 3 ? "/DYN(PIE)" : (eType == 2 ? "/EXEC" : "/type" + eType));
+            if (eType != 3 && eType != 2) {
+                return sb.append(" — 不是可执行文件类型").toString();
+            }
+            // _Unwind_Resume 依赖：blutter 全系引用，但 DT_NEEDED 里没有 libunwind
+            File parent = exe.getParentFile();
+            File unwind = new File(parent, "libcpp.so");
+            if (!unwind.exists()) unwind = new File(parent, "libunwind.so");
+            sb.append(unwind.exists()
+                    ? " | _Unwind_Resume 由 " + unwind.getName() + " 提供（LD_PRELOAD）"
+                    : " | 警告：缺 libcpp.so/libunwind.so，_Unwind_Resume 无法解析");
+            sb.append(" | 已做静态校验，未 exec（避免内嵌 libc 的 SIGSEGV 污染 crash 日志）");
+            return sb.toString();
+        } catch (Exception e) {
+            return "校验失败: " + e.getMessage();
+        } finally {
+            if (raf != null) try { raf.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    private static int u16(byte[] b, int off, boolean little) {
+        int a = b[off] & 0xff, c = b[off + 1] & 0xff;
+        return little ? (a | (c << 8)) : ((a << 8) | c);
+    }
+
+    /**
      * 列出 nativeLibraryDir 下的库名，用于排查 link 失败。
      * 日志里能一眼看出缺了 libc++_shared.so 还是别的。
      */

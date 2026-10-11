@@ -50,8 +50,15 @@ public class McpService {
     private volatile boolean running;
 
     public McpService(Context ctx, int port, String backendUrl, String toolsJson, Sink sink) {
+        this(ctx, port, backendUrl, toolsJson, sink, defaultHost());
+    }
+
+    public McpService(Context ctx, int port, String backendUrl, String toolsJson,
+                      Sink sink, String host) {
         this.ctx = ctx.getApplicationContext();
         this.port = port;
+        // 空值兜底：外部传 null 会让 bind 直接抛异常
+        this.bindHost = (host == null || host.trim().isEmpty()) ? defaultHost() : host.trim();
         this.backendUrl = backendUrl;
         this.toolsJson = toolsJson;
         this.sink = sink;
@@ -60,28 +67,72 @@ public class McpService {
 
     public ToolExecutor executor() { return executor; }
 
+    /** 监听地址。默认 127.0.0.1：只有本机客户端能连（P13 安全修复）。 */
+    private final String bindHost;
+    /** 看门狗线程池。 */
+    private java.util.concurrent.ScheduledExecutorService watchdog;
+    /** 是否应当保持运行（区别于 running——后者表示当前确实在监听）。 */
+    private volatile boolean shouldRun = true;
+
     public boolean isRunning() {
         return running;
     }
 
+    /**
+     * 改为默认只绑 127.0.0.1。
+     *
+     * 0.0.0.0 意味着同局域网任何设备都能调这些工具，
+     * 而工具里包含 Shell_Command（还能 use_root 提权）—— 攻击面太大。
+     * 需要局域网访问时必须显式开启。
+     */
+    public static String defaultHost() { return "127.0.0.1"; }
+
+    /**
+     * 启动监听，并挂一个看门狗。
+     *
+     * 实测存在一种"假死"：应用进程活着、前台通知还在，但 5051 不再监听，
+     * 客户端只看到 connection refused。此时 monkey 拉活无效，
+     * 必须 am force-stop 才能恢复——对调用方来说就是服务没了。
+     *
+     * 成因是 accept 循环所在线程因异常退出（或 ServerSocket 被关闭），
+     * 而 running 标志没人复位，于是再也不会重新 bind。
+     *
+     * 看门狗每 5 秒自检一次：连不上自己就重新 bind。
+     * 这样"假死"最多持续 5 秒，无需人工 force-stop。
+     */
     public void start() {
         if (running) return;
-        pool = Executors.newCachedThreadPool();
+        if (pool == null || pool.isShutdown()) {
+            pool = Executors.newCachedThreadPool();
+        }
+        startListener();
+        startWatchdog();
+    }
+
+    private void startListener() {
         pool.execute(new Runnable() {
             public void run() {
                 try {
                     server = new ServerSocket();
                     server.setReuseAddress(true);
-                    server.bind(new InetSocketAddress("0.0.0.0", port));
+                    server.bind(new InetSocketAddress(bindHost, port));
                     running = true;
-                    log("MCP 服务启动在 0.0.0.0:" + port);
-                    log("工具数 " + toolCount() + " · 协议 " + PROTOCOL);
+                    log("MCP 服务启动在 " + bindHost + ":" + port);
+                    int usable = toolCount();
+                    // 数字必须自洽：之前日志说 379、客户端收到 102、
+                    // 源码注册又是另一个数，三方对不上，无法据此判断真实能力。
+                    log("工具数 " + usable + "（可调用）/ " + lastTotal
+                            + "（注册）· 协议 " + PROTOCOL);
+                    if (lastTotal > usable) {
+                        log("  已排除 " + (lastTotal - usable)
+                                + " 个无路由的占位工具，不出现于 tools/list");
+                    }
                     while (running) {
                         Socket s;
                         try {
                             s = server.accept();
                         } catch (Exception e) {
-                            if (running) log("accept 失败: " + e.getMessage());
+                            if (running) log("accept 循环退出: " + e.getMessage());
                             break;
                         }
                         final Socket sock = s;
@@ -93,10 +144,46 @@ public class McpService {
                     }
                 } catch (Exception e) {
                     log("启动失败: " + e.getMessage());
+                } finally {
+                    // 关键：循环一旦退出，必须复位标志，
+                    // 否则看门狗以为还在跑，永远不会重新 bind。
                     running = false;
                 }
             }
         });
+    }
+
+    /** 看门狗：发现 5051 不再监听就重新 bind。 */
+    private void startWatchdog() {
+        if (watchdog != null && !watchdog.isShutdown()) return;
+        watchdog = Executors.newSingleThreadScheduledExecutor();
+        watchdog.scheduleWithFixedDelay(new Runnable() {
+            public void run() {
+                if (!shouldRun) return;
+                if (selfProbe()) return;      // 正常监听，无需处理
+                log("看门狗：5051 未响应，尝试重新监听…");
+                running = false;
+                try {
+                    if (server != null) server.close();
+                } catch (Exception ignored) {}
+                server = null;
+                startListener();
+            }
+        }, 5, 5, java.util.concurrent.TimeUnit.SECONDS);
+    }
+
+    /** 自检：能否连上自己。 */
+    private boolean selfProbe() {
+        java.net.Socket s = null;
+        try {
+            s = new java.net.Socket();
+            s.connect(new java.net.InetSocketAddress("127.0.0.1", port), 1500);
+            return true;
+        } catch (Exception e) {
+            return false;
+        } finally {
+            if (s != null) try { s.close(); } catch (Exception ignored) {}
+        }
     }
 
     public void stop() {
@@ -114,21 +201,52 @@ public class McpService {
         Log.i(TAG, s);
     }
 
+    /**
+     * 真实可暴露的工具数。
+     *
+     * 之前直接读 toolsJson 里的 tool_total（379），
+     * 而实际能调的远少于此——日志里"工具数 379"与客户端看到的
+     * 102 个对不上，三方数字互相矛盾，排查时无从判断哪个是真的。
+     * 现在以"有派发路由"为准，与 tools/list 的 exposed_total 必然一致。
+     */
     private int toolCount() {
+        int total = 0, routed = 0;
         try {
             JSONObject o = new JSONObject(toolsJson);
-            return o.optInt("tool_total", 0);
+            JSONArray engines = o.optJSONArray("engines");
+            if (engines == null) return 0;
+            for (int i = 0; i < engines.length(); i++) {
+                JSONObject e = engines.optJSONObject(i);
+                if (e == null) continue;
+                JSONArray ts = e.optJSONArray("tools");
+                if (ts == null) continue;
+                for (int j = 0; j < ts.length(); j++) {
+                    JSONObject t = ts.optJSONObject(j);
+                    if (t == null) continue;
+                    total++;
+                    String tn = t.optString("name");
+                    if (executor == null || executor.hasRoute(tn)) routed++;
+                }
+            }
         } catch (Exception e) {
             return 0;
         }
+        lastTotal = total;
+        return routed;
     }
+
+    private int lastTotal = 0;
 
     /** 每页工具数。分页是为了避开客户端对大响应的截断（实测有客户端只收 102 个）。 */
     private static final int PAGE_SIZE = 100;
 
+    /** 被排除的占位工具计数（无派发路由）。 */
+    private int hiddenCount = 0;
+
     /** tools/list 的返回体：把 assets 里的分类数据摊平成工具数组。 */
     private JSONArray buildToolList() {
         JSONArray out = new JSONArray();
+        hiddenCount = 0;
         try {
             JSONObject root = new JSONObject(toolsJson);
             JSONArray engines = root.optJSONArray("engines");
@@ -141,13 +259,22 @@ public class McpService {
                 for (int j = 0; j < ts.length(); j++) {
                     JSONObject t = ts.optJSONObject(j);
                     if (t == null) continue;
+                    String tn = t.optString("name");
+                    // 占位工具（注册了但 dispatcher 里没有路由）不暴露。
+                    // 它们调用后只会返回"尚未在本机实现"，白白占用 LLM 的工具选择。
+                    // 实测模型会反复挑中这些空壳并重试，浪费整轮对话。
+                    // 排除后，列表里每一个都是真能跑的。
+                    if (executor != null && !executor.hasRoute(tn)) {
+                        hiddenCount++;
+                        continue;
+                    }
                     JSONObject item = new JSONObject();
-                    item.put("name", t.optString("name"));
+                    item.put("name", tn);
                     String d = t.optString("desc");
                     String guide = usageGuide(t.optString("name"));
                     if (guide != null) d = d + " " + guide;
                     item.put("description", d);
-                    item.put("inputSchema", buildSchema(t.optString("name"),
+                    item.put("inputSchema", buildSchema(tn,
                             t.optJSONArray("params")));
                     out.put(item);
                 }
@@ -399,6 +526,15 @@ public class McpService {
                 res.put("tools", page);
                 res.put("total", all.length());
                 res.put("returned", page.length());
+                // 之前自称 379，而实际能调的远少于此——
+                // 这个数字不可信会让调用方按错误预期去规划。
+                res.put("exposed_total", all.length());
+                res.put("hidden_unrouted", hiddenCount);
+                if (hiddenCount > 0) {
+                    res.put("note", "已排除 " + hiddenCount
+                            + " 个无派发路由的占位工具（调用只会返回'尚未实现'），"
+                            + "列表内每个工具都可执行。");
+                }
                 if (end < all.length()) {
                     res.put("nextCursor", String.valueOf(end));
                     res.put("hint", "工具共 " + all.length() + " 个，"

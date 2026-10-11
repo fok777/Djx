@@ -320,12 +320,32 @@ public final class ToolExecutor {
         }
 
         if (n.equals("Os_File_Read") || n.equals("Os_Read_File")) {
+            // 与 resolveApk 同理：把"不存在 / 不可读"分开报。
+            // 实测 /sdcard、/data/local/tmp 下明明 ls 得到文件，
+            // 工具却报"文件不存在"——真实原因是 Permission denied 被当成不存在。
+            // 这种误导会让人反复怀疑路径写错，而真正的问题是权限。
             String p = opt(a, "path", "file");
             if (p == null) { out.put("error", "缺少 path"); return; }
             File f = new File(p);
-            if (!f.isFile()) { out.put("error", "不是文件: " + p); return; }
+            if (!f.exists()) { out.put("error", "文件不存在: " + p); return; }
+            if (!f.isFile()) { out.put("error", "不是文件（可能是目录）: " + p); return; }
+            if (!f.canRead()) {
+                out.put("error", "文件存在但不可读: " + p
+                        + "（Permission denied。Android 分区存储下 /sdcard 根目录、"
+                        + "/data/local/tmp 等常无权限）");
+                out.put("suggestion", "改用本应用私有目录 "
+                        + workDir().getAbsolutePath() + " 或 Download 公共目录");
+                return;
+            }
             int limit = a.optInt("limit", 20000);
-            byte[] d = NativeAnalyzer.readAll(f);
+            byte[] d;
+            try {
+                d = NativeAnalyzer.readAll(f);
+            } catch (Throwable t) {
+                out.put("error", "读取失败（权限或 I/O）: " + t.getMessage());
+                out.put("path", p);
+                return;
+            }
             int len = Math.min(d.length, limit);
             out.put("path", p);
             out.put("size", d.length);
@@ -894,6 +914,61 @@ public final class ToolExecutor {
         out.put("error", "工具 " + n + " 尚未在本机实现");
         out.put("hint", hintFor(n));
         out.put("implemented", implementedList());
+    }
+
+    /**
+     * 判断工具是否真有派发路由（不执行，只查表）。
+     *
+     * 存在意义：tools/list 里混着大量"注册了但没人处理"的工具，
+     * 调用它们只会返回"尚未在本机实现"。
+     * 这些占位工具会污染 LLM 的工具选择——模型看到 379 个工具，
+     * 挑中的却是一个空壳，白白浪费一轮调用，还以为是自己参数写错了。
+     * 实测有客户端因此反复重试同一批无效工具。
+     *
+     * 现在 tools/list 只暴露真正有路由的，占位工具被排除。
+     * 这与"删掉"不同：实现补齐后它们会自动重新出现。
+     */
+    public boolean hasRoute(String n) {
+        if (n == null) return false;
+        if (n.startsWith("Frida_Channel")) return true;
+        if (n.startsWith("Fr_")) {
+            return FridaScripts.scriptFor(n, null, null, null) != null
+                    || FridaScripts.deviceOpFor(n) != null;
+        }
+        if (n.startsWith("Patch_Session")) return true;
+        if (n.startsWith("Ub_")) return EngineCommands.opFor(n) != null;
+        if (n.startsWith("Capstone_") || n.startsWith("Disasm_")) return true;
+        if (n.equals("Apk_Open") || n.equals("Apk_Info") || n.equals("Apk_List")) return true;
+        if (n.equals("Apk_Extract") || n.equals("Apk_Extract_Entry")) return true;
+        if (n.startsWith("Blutter_")) return EngineCommands.opFor(n) != null;
+        if (n.startsWith("Nav_")) return EngineCommands.opFor(n) != null;
+        if (n.startsWith("Pentest_")) return EngineCommands.opFor(n) != null;
+        if (n.equals("Il2Cpp_Analyze") || n.equals("Il2Cpp_Dump")) return true;
+        if (n.equals("Dex_Strings") || n.equals("Apk_Strings")) return true;
+        if (n.startsWith("R2_")) {
+            return n.equals("R2_Version") || R2Commands.commandFor(n, null) != null;
+        }
+        if (n.equals("Os_List_Dir") || n.equals("Os_ListDir")) return true;
+        if (n.equals("Os_File_Read") || n.equals("Os_Read_File")) return true;
+        if (n.equals("Shell_Command") || n.equals("Os_Shell_Command")) return true;
+        if (n.equals("Apk_Version_Info") || n.equals("Apk_Close") || n.equals("Apk_Diff")
+                || n.equals("Apk_Pack") || n.equals("Apk_Install")
+                || n.equals("Apk_Install_Start") || n.equals("Apk_Upload")) return true;
+        if (n.equals("Engine_List_Assets") || n.equals("Engine_R2_Status")
+                || n.equals("Engine_R2_Deps") || n.equals("Engine_R2_Lib")
+                || n.equals("Engine_R2_Cmd") || n.equals("Engine_Guide")
+                || n.equals("Engine_Fetch_Plan") || n.equals("Engine_Config")
+                || n.equals("Engine_Set") || n.equals("Engine_Status")
+                || n.equals("Engine_Inventory") || n.equals("Engine_Probe")) return true;
+        if (n.equals("Os_Stat") || n.equals("Os_Write_File") || n.equals("Os_Grep")
+                || n.equals("Os_Find")) return true;
+        if (n.equals("Read_Logcat") || n.equals("Sqlite_Query")
+                || n.equals("Find_Jni_Methods") || n.equals("Scan_Crypto_Signatures")
+                || n.equals("Apply_Hex_Patch") || n.equals("Address_Lookup")
+                || n.equals("Rename_Function") || n.equals("Blob_Read")
+                || n.equals("File_Download")) return true;
+        if (n.startsWith("Project_")) return true;
+        return false;
     }
 
     private String hintFor(String n) {
@@ -2585,6 +2660,32 @@ public final class ToolExecutor {
             blo.put("note", "最高变体 3.12.1，按旧符号命名编译；"
                     + "Dart 3.13+ 目标不支持");
             eng.put("blutter", blo);
+        }
+        // unidbg 必须按"真的能跑"判定，不能数目录里的文件数。
+        //
+        // 之前 eng.put("unidbg", {files: N, ready: cnt>0})——
+        // 只要目录里有 dex 就报 ready:true。
+        // 实测 libunicorn.so 的 JNI_OnLoad 失败时（且 ART 会缓存这条失败，
+        // 之后每次都直接返回同一个错误），清单依然显示 ready:true。
+        // 调用方据此认为 42 个 Ub_* 可用，实际一个都跑不通。
+        {
+            boolean ubOk = false;
+            String ubErr = null;
+            try {
+                ubOk = UnidbgEngine.load(ctx);
+                if (!ubOk) ubErr = UnidbgEngine.lastError();
+            } catch (Throwable t) {
+                ubErr = t.getClass().getSimpleName() + ": " + t.getMessage();
+            }
+            JSONObject ub = new JSONObject();
+            ub.put("ready", ubOk);
+            if (ubErr != null) {
+                ub.put("error", ubErr);
+                ub.put("note", "unidbg 不可用，42 个 Ub_* 工具无法执行。"
+                        + "常见原因：libunicorn.so 的 JNI_OnLoad 失败（ART 会缓存该失败，"
+                        + "需重启应用才可能恢复），或 unidbg-api 核心类缺失。");
+            }
+            eng.put("unidbg", ub);
         }
         out.put("engines", eng);
         out.put("engine_root", root.getAbsolutePath());
