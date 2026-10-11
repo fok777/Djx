@@ -937,20 +937,45 @@ public final class ToolExecutor {
         DartSnapshot snap = detectDartSnapshot(elf);
         out.put("snapshot_scheme", snap.scheme);
         out.put("snapshot_symbols", new JSONArray(snap.found));
+
+        // 快照哈希（来自 _kDartSnapshotBuildId，32 字节）
+        String buildId = readSnapshotBuildId(so, elf);
+        if (buildId != null) out.put("snapshot_hash", buildId);
+
+        // Dart 版本：优先从 libflutter.so 的明文版本串取，
+        // 取不到再用调用方传的 dart_version，最后留空
+        String dartVer = detectDartVersionFromFlutter(apk);
+        if (dartVer != null) out.put("dart_version_detected", dartVer);
+        else dartVer = a.optString("dart_version", null);
+        if (dartVer != null) out.put("dart_version_used", dartVer);
+
         java.util.List<String> variants = blutterVariants();
         out.put("blutter_variants", new JSONArray(variants));
         out.put("blutter_max_variant",
                 variants.isEmpty() ? "无" : variants.get(variants.size() - 1));
+
         if ("unified".equals(snap.scheme)) {
             out.put("warning", "该 libapp.so 用新版统一符号命名"
-                    + "（_kDartSnapshotData / _kDartSnapshotText / _kDartSnapshotBuildId）。"
+                    + "（_kDartSnapshotData / _kDartSnapshotText）。"
                     + "现有 blutter 变体按旧命名"
                     + "（_kDartVmSnapshotData / _kDartIsolateSnapshotData）定位快照，"
-                    + "几乎必然失败。需要支持新命名的 blutter 版本。");
+                    + "几乎必然失败——它们找不到快照入口，不是版本不匹配的问题。");
+            out.put("fix", "需要支持新符号命名的 blutter 版本；"
+                    + "现有最高变体为 " + (variants.isEmpty() ? "无"
+                    : variants.get(variants.size() - 1)));
+        } else if (dartVer != null && !variants.isEmpty()) {
+            String want = dartVer.replace('.', '_');
+            boolean hit = false;
+            for (String v : variants) if (v.equals(want)) { hit = true; break; }
+            if (!hit) {
+                out.put("warning", "未找到与 Dart " + dartVer
+                        + " 精确匹配的 blutter 变体，将退化为就近/最大版本，"
+                        + "结果可能不准确或失败");
+            }
         }
 
         // 其次：本地 exec（libblutter_*.so 是 PIE 可执行文件）
-        File real = blutterBinary(a.optString("dart_version", null));
+        File real = blutterBinary(dartVer);
         boolean usedReal = false;
         if (real != null) {
             File outDir = new File(workDir(), "blutter_out");
@@ -1911,6 +1936,69 @@ public final class ToolExecutor {
         else if (lc > 0 && uc > 0) d.scheme = "mixed";
         else d.scheme = "unknown";
         return d;
+    }
+
+    /**
+     * 读 _kDartSnapshotBuildId 的内容（32 字节快照哈希）。
+     *
+     * 这个符号在 .note.gnu.build-id 里，地址很小（通常在 0x1c8 附近），
+     * 该区域 vaddr == 文件偏移，所以可以直接按偏移读。
+     * 若地址超出文件范围（非预期布局），返回 null 并如实说明，不猜。
+     */
+    private String readSnapshotBuildId(File so, NativeAnalyzer.ElfInfo elf) {
+        if (elf == null || elf.symbols == null) return null;
+        long addr = -1;
+        long size = 32;
+        for (NativeAnalyzer.Sym sy : elf.symbols) {
+            if ("_kDartSnapshotBuildId".equals(sy.name)) {
+                addr = sy.addr; size = sy.size > 0 ? sy.size : 32; break;
+            }
+        }
+        if (addr < 0) return null;
+        try {
+            java.io.RandomAccessFile rf = new java.io.RandomAccessFile(so, "r");
+            long len = rf.length();
+            if (addr >= len) { rf.close(); return null; }
+            int n = (int) Math.min(size, len - addr);
+            byte[] b = new byte[n];
+            rf.seek(addr);
+            rf.readFully(b);
+            rf.close();
+            StringBuilder sb = new StringBuilder();
+            for (byte x : b) sb.append(String.format("%02x", x));
+            return sb.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 从 libflutter.so 的字符串里找 Dart 版本（形如 "Dart 3.4.2"）。
+     *
+     * blutter 的版本匹配靠的是 Dart SDK 版本号，不是快照哈希本身——
+     * 哈希只用于校验 libapp.so 与 libflutter.so 是否同版本。
+     * 而 libflutter.so 里带明文版本串，是最可靠的来源。
+     */
+    private String detectDartVersionFromFlutter(File apk) {
+        try {
+            NativeAnalyzer.ApkInfo info = NativeAnalyzer.openApk(apk);
+            String entry = null;
+            for (String s2 : info.libs) {
+                if (s2.endsWith("libflutter.so")) { entry = s2; break; }
+            }
+            if (entry == null) return null;
+            File f = NativeAnalyzer.extractEntry(apk, entry, workDir());
+            if (f == null) return null;
+            byte[] d = NativeAnalyzer.readAll(f);
+            List<NativeAnalyzer.Str> strs = NativeAnalyzer.extractStrings(d, 6, 5000);
+            java.util.regex.Pattern P = java.util.regex.Pattern.compile(
+                    "Dart\\s+(\\d+\\.\\d+(?:\\.\\d+)?)");
+            for (NativeAnalyzer.Str st : strs) {
+                java.util.regex.Matcher m = P.matcher(st.value);
+                if (m.find()) return m.group(1);
+            }
+        } catch (Exception ignored) {}
+        return null;
     }
 
     /**
