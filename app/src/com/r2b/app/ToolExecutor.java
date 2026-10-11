@@ -1325,7 +1325,7 @@ public final class ToolExecutor {
         return "cd ~ 2>/dev/null; "
                 + "for B in blutter/blutter.py ~/blutter/blutter.py "
                 + "blutter-termux/blutter.py ~/blutter-termux/blutter.py; do "
-                + "if [ -f "$B" ]; then python3 "$B" " + dirArg + " " + outArg
+                + "if [ -f \"$B\" ]; then python3 \"$B\" " + dirArg + " " + outArg
                 + "; exit $?; fi; done; "
                 + "echo NO_BLUTTER_PY";
     }
@@ -1335,7 +1335,7 @@ public final class ToolExecutor {
         if (a == null) return false;
         try {
             String[] x = a.split("[-.]");
-            String[] y = b.split("\.");
+            String[] y = b.split("[.]");
             int[] p = new int[]{0, 0, 0}, q = new int[]{0, 0, 0};
             for (int i = 0; i < 3; i++) {
                 if (i < x.length) p[i] = Integer.parseInt(x[i]);
