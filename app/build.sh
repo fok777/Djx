@@ -49,11 +49,28 @@ echo "[2/5] javac17 (UTF-8)"; "$JC" -source 1.8 -target 1.8 -encoding UTF-8 \
   -bootclasspath "$AJ" -cp "$AJ" -d build/classes \
   build/java/com/r2b/app/*.java \
   src/com/r2b/app/*.java \
-  src/com/r2aibridge/*.java
-# 同样要把 com/r2aibridge 的 class 打进 dex，否则运行时依旧找不到 R2Core
+  src/com/r2aibridge/*.java \
+  src/capstone/jni/*.java
+# 这三个包都必须进 dex，缺任一个都会在运行时 ClassNotFoundException：
+#   com/r2aibridge  → R2Core（radare2 JNI 桥）
+#   capstone/jni    → FastDisassembler（capstone JNI 桥）
+# JNI 是按「包名_类名_方法名」反查 Java 类的，类不在 dex 里，
+# so 加载得再成功也没用。
 echo "[3/5] d8 dex"; "$D8" --release --lib "$AJ" --min-api 24 --output build \
   build/classes/com/r2b/app/*.class \
-  build/classes/com/r2aibridge/*.class
+  build/classes/com/r2aibridge/*.class \
+  build/classes/capstone/jni/*.class
+
+# 构建期就校验 JNI 桥类确实进了 dex——
+# 这两类缺失以前都只在运行时才暴露（ClassNotFoundException），
+# 排查成本高。这里提前拦住。
+for req in "com/r2aibridge/R2Core" "capstone/jni/FastDisassembler"; do
+  if [ -f "build/classes/$req.class" ]; then
+    echo "::notice::has-$req=1"
+  else
+    echo "::error::dex 缺少 $req —— JNI 桥将不可用"
+  fi
+done
 # ---- 3.5/5 unidbg jar → dex ----
 # unidbg 是 JVM jar，安卓跑的是 ART，必须用 d8 转成 dex 才能加载。
 # 转好后打进 assets/engine/unidbg/*.dex，运行时用 DexClassLoader 载入。

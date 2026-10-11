@@ -106,6 +106,20 @@ public final class CapstoneJni {
     }
 
     /**
+     * 上一次实际调用的错误（区别于加载期错误）。
+     *
+     * 关键：so 走动态注册（有 JNI_OnLoad），签名对不上时注册会静默失败，
+     * 真正暴露是在调用期抛 UnsatisfiedLinkError —— 而它的消息里带着
+     * so 期望的完整签名。把这条消息原样回传给调用方，
+     * 看一眼就能把 Java 侧签名改对，不用盲猜。
+     */
+    private static volatile String lastCallError = null;
+
+    public static String lastCallError() {
+        return lastCallError;
+    }
+
+    /**
      * 反汇编一段机器码。
      *
      * @param code   原始字节
@@ -144,6 +158,7 @@ public final class CapstoneJni {
                     return out;
                 }
                 parseResult(res, out);
+                lastCallError = null;
             } finally {
                 java.lang.reflect.Method destroy = findMethod(k, "nativeDestroy", 1);
                 if (destroy != null) {
@@ -152,9 +167,10 @@ public final class CapstoneJni {
                 }
             }
         } catch (Throwable t) {
-            // 签名对不上时把真实方法列出来，便于一次修正到位
-            Log.w(TAG, "disasm 失败: " + t.getClass().getSimpleName() + ": "
-                    + t.getMessage() + " | 可用方法: " + availableMethods());
+            // UnsatisfiedLinkError 的消息里含 so 期望的完整签名，原样保留
+            lastCallError = t.getClass().getSimpleName() + ": " + t.getMessage()
+                    + " | 类上可用方法: " + availableMethods();
+            Log.w(TAG, "disasm 失败: " + lastCallError);
         }
         return out;
     }

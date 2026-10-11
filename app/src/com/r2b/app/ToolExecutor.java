@@ -1293,6 +1293,16 @@ public final class ToolExecutor {
         }
         out.put("insns", arr);
         if (list.isEmpty()) {
+            String ce = CapstoneJni.lastCallError();
+            if (ce != null) {
+                // 把真实签名带出去：改一次 Java 侧声明即可
+                out.put("error", ce);
+                out.put("hint", "so 为动态注册，签名需完全一致；"
+                        + "按上面 UnsatisfiedLinkError 里的签名改 "
+                        + "capstone/jni/FastDisassembler 的声明");
+                return;
+            }
+
             out.put("hint", "反汇编结果为空：可能是桥签名不匹配，"
                     + "或该架构未被 capstone 启用");
         }
