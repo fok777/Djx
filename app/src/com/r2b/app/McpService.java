@@ -140,7 +140,10 @@ public class McpService {
                     if (t == null) continue;
                     JSONObject item = new JSONObject();
                     item.put("name", t.optString("name"));
-                    item.put("description", t.optString("desc"));
+                    String d = t.optString("desc");
+                    String guide = usageGuide(t.optString("name"));
+                    if (guide != null) d = d + " " + guide;
+                    item.put("description", d);
                     item.put("inputSchema", buildSchema(t.optString("name"),
                             t.optJSONArray("params")));
                     out.put(item);
@@ -163,6 +166,40 @@ public class McpService {
      * 真按这个校验会导致大量调用被拒（很多参数是可选的）。
      * 所以只保留"确属必需"的少数几个，其余降级为可选。
      */
+    /**
+     * 给关键工具补一句"怎么用"。
+     *
+     * AI 自主调用时，光有工具名和一句功能描述不够——它不知道
+     * 该先调哪个、APK 从哪来、典型流程是什么。没有这段引导，
+     * AI 常会一上来就调重分析类工具，或者直接放弃。
+     * 只给少数入口级工具加，避免描述膨胀。
+     */
+    private static String usageGuide(String n) {
+        if (n == null) return null;
+        switch (n) {
+            case "Engine_Status":
+                return "【建议先调这个】查看各引擎是否可用、当前已选 APK 是什么，"
+                        + "再决定后续用哪条分析路线。";
+            case "Apk_Open":
+                return "【典型第一步】打开一个 APK 文件路径，"
+                        + "之后大多数工具都可省略路径参数。";
+            case "Apk_List":
+                return "列出 APK 内所有条目；先用它确认是 DEX/Flutter/Unity/其他，"
+                        + "再选对应分析工具。";
+            case "Blutter_Analyze":
+                return "Flutter 应用专用：需 APK 内含 libapp.so。"
+                        + "Dart 3.13+ 目标需 Termux/Ubuntu 环境重新编译 blutter，"
+                        + "App 内置变体不支持。";
+            case "R2_Info":
+                return "对单个 so 做二进制信息分析（架构/节/入口），"
+                        + "轻量最快，建议先用它确认文件可读。";
+            case "R2_Open":
+                return "用 radare2 打开一个 so，之后的 R2_* 工具复用该会话。";
+            default:
+                return null;
+        }
+    }
+
     private JSONObject buildSchema(String toolName, JSONArray params) {
         JSONObject schema = new JSONObject();
         JSONObject props = new JSONObject();
@@ -180,8 +217,21 @@ public class McpService {
                     o.put("type", normType(ty));
                     String pd = p.optString("desc");
                     if (pd != null && !pd.isEmpty()) o.put("description", pd);
+                    // session_id 绝不进 required：
+                    // 原始表把 307 个工具的 session_id 标成必填，
+                    // 但服务端实际并不用它（走"当前已选 APK / 上次会话"）。
+                    // AI 看到必填会先去找"开会话"的工具，找不到就卡住；
+                    // 或者瞎编一个 id 传进来。两种都让调用链断掉。
+                    // 如实标成可选并说明，AI 才敢直接调。
+                    if ("session_id".equals(pn)) {
+                        o.put("description", "可选。会话标识，通常不需要传："
+                                + "不传则使用当前已选 APK / 最近一次会话。"
+                                + "只有需要区分多个并发会话时才填。");
+                    }
                     props.put(pn, o);
-                    if (isTrulyRequired(toolName, pn)) req.put(pn);
+                    if (isTrulyRequired(toolName, pn) && !"session_id".equals(pn)) {
+                        req.put(pn);
+                    }
                 }
             }
             // 通用兜底参数：几乎所有工具都接受，方便 AI 灵活调用
