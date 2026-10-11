@@ -57,5 +57,14 @@
                 android:value="在局域网提供 MCP (Model Context Protocol) 逆向分析服务，
                                供 AI 客户端通过 HTTP 调用 375 个逆向工具"/>
         </service>
+
+        <!-- radare2 / capstone 的 native 执行进程。
+             必须独立进程：它们在 native 里 SIGSEGV 时死的是整个进程，
+             Java 层拦不住。隔离后崩溃只杀 :r2，MCP 服务（5051）继续存活，
+             客户端看到的是"这个工具失败"而不是"整个服务断连"。 -->
+        <service android:name=".R2RemoteService"
+            android:process=":r2"
+            android:exported="false"
+            android:stopWithTask="false" />
     </application>
 </manifest>

@@ -123,6 +123,9 @@ public class McpService {
         }
     }
 
+    /** 每页工具数。分页是为了避开客户端对大响应的截断（实测有客户端只收 102 个）。 */
+    private static final int PAGE_SIZE = 100;
+
     /** tools/list 的返回体：把 assets 里的分类数据摊平成工具数组。 */
     private JSONArray buildToolList() {
         JSONArray out = new JSONArray();
@@ -235,9 +238,9 @@ public class McpService {
                 }
             }
             // 通用兜底参数：几乎所有工具都接受，方便 AI 灵活调用
-            addFallback(props, "so", "目标 so 文件路径");
+            // 只补最通用的三个。之前补 5 个，379 × 5 让响应体膨胀近一倍，
+            // 加剧了客户端截断问题。
             addFallback(props, "path", "文件路径");
-            addFallback(props, "target", "目标进程名或 pid（Frida 用）");
             addFallback(props, "keyword", "关键词");
             addFallback(props, "limit", "返回条数上限");
             schema.put("properties", props);
@@ -368,8 +371,40 @@ public class McpService {
                 return rpcResult(id, res);
             }
             if ("tools/list".equals(method)) {
+                // 支持分页（MCP 的 cursor 机制）。
+                //
+                // 379 个工具带完整 schema 后响应体可达数百 KB，
+                // 实测有客户端只取到前 102 个——它会自己截断大响应。
+                // 分页后每页体积可控，客户端可以逐页拉全；
+                // 不支持分页的客户端拉首页时也能拿到 nextCursor 提示。
                 JSONObject res = new JSONObject();
-                res.put("tools", buildToolList());
+                JSONArray all = buildToolList();
+                int start = 0;
+                JSONObject params = req.optJSONObject("params");
+                if (params != null) {
+                    String cur = params.optString("cursor", null);
+                    if (cur == null) cur = params.optString("pageToken", null);
+                    if (cur != null) {
+                        try { start = Integer.parseInt(cur.trim()); } catch (Exception ignored) {}
+                    }
+                }
+                if (start < 0) start = 0;
+                if (start > all.length()) start = all.length();
+                int end = Math.min(all.length(), start + PAGE_SIZE);
+                JSONArray page = new JSONArray();
+                for (int i = start; i < end; i++) {
+                    JSONObject it = all.optJSONObject(i);
+                    if (it != null) page.put(it);
+                }
+                res.put("tools", page);
+                res.put("total", all.length());
+                res.put("returned", page.length());
+                if (end < all.length()) {
+                    res.put("nextCursor", String.valueOf(end));
+                    res.put("hint", "工具共 " + all.length() + " 个，"
+                            + "本次返回 " + page.length() + " 个。"
+                            + "带 cursor=" + end + " 再次调用 tools/list 可继续获取。");
+                }
                 return rpcResult(id, res);
             }
             if ("tools/call".equals(method)) {

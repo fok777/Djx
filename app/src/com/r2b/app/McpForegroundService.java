@@ -195,17 +195,35 @@ public class McpForegroundService extends Service {
                         emit("  exec 自检: " + EngineUnpacker.tryExec(fx, "--help"));
                     }
                     emit(EngineUnpacker.describe(McpForegroundService.this));
-                    // radare2 需要在后台线程加载（30 个 so，耗时且不能阻塞主线程）
-                    emit("加载 radare2…");
-                    Radare2Bridge.LoadReport r2 = Radare2Bridge.load(McpForegroundService.this);
-                    if (r2.ok) {
-                        emit("radare2 就绪：已加载 " + r2.loaded.size() + " 个库");
-                        if (!r2.missing.isEmpty()) {
-                            emit("  缺失（非关键）: " + r2.missing);
-                        }
-                        emit("  自检: " + Radare2Bridge.test());
+                    // radare2 不再在主进程加载。
+                    //
+                    // 之前在这里 System.load + test()，于是主进程里也躺着一套 r2；
+                    // 结果是"自检全绿但一调工具就崩"——自检和工具执行走的是
+                    // 两个不同的 core 状态（test() 内部 r_core_free 释放了 core）。
+                    // 现在加载和执行都在 :r2 进程，自检也通过 :r2 跑，
+                    // 保证"自检通过"和"工具能跑"是同一条路径、同一个 core。
+                    java.util.List<String> miss = Radare2Bridge.missingLibs();
+                    if (miss != null && !miss.isEmpty()) {
+                        emit("radare2 库缺失: " + miss);
                     } else {
-                        emit("radare2 不可用: " + r2.error);
+                        emit("radare2 库齐全，将在 :r2 隔离进程内加载执行");
+                    }
+                    // 预热：提前拉起 :r2，避免首次工具调用时才启动造成长等待。
+                    // 预热失败不阻塞——真正的错误会在工具调用时如实返回。
+                    try {
+                        R2Remote.Result t = R2Remote.get(McpForegroundService.this).test();
+                        if (t.crashed) {
+                            emit("radare2 预热：隔离进程崩溃（MCP 服务未受影响），"
+                                    + "后续 R2_* 工具将返回明确错误而非断连");
+                        } else if (t.ok) {
+                            emit("radare2 就绪（:r2 隔离进程自检通过）");
+                        } else {
+                            emit("radare2 自检未通过: "
+                                    + String.valueOf(t.out).substring(0,
+                                    Math.min(300, String.valueOf(t.out).length())));
+                        }
+                    } catch (Throwable t2) {
+                        emit("radare2 预热跳过: " + t2.getMessage());
                     }
                 } catch (Exception e) {
                     emit("引擎释放失败: " + e.getMessage());

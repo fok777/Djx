@@ -179,13 +179,13 @@ public final class ToolExecutor {
             } else if (arg != null && !arg.trim().isEmpty()) {
                 cmd = cmd + " @ " + arg.trim();
             }
-            if (!Radare2Bridge.load(ctx).ok) {
-                out.put("error", "radare2 不可用: " + Radare2Bridge.status());
-                return;
-            }
             out.put("command", cmd);
-            out.put("output", Radare2Bridge.cmd(cmd));
+            R2Remote.Result rr4 = R2Remote.get(ctx).cmd(cmd);
+            out.put("engine", "radare2 (隔离进程 :r2)");
+            out.put("output", rr4.out);
+            out.put("ok", rr4.ok);
             out.put("heuristic", false);
+            if (rr4.crashed) out.put("warning", "radare2 隔离进程崩溃，服务未受影响");
             return;
         }
 
@@ -218,6 +218,12 @@ public final class ToolExecutor {
                         JSONObject o = new JSONObject();
                         o.put("category", k); o.put("value", st.value);
                         o.put("offset", st.offset);
+                        // 纯子串匹配噪声极大：实测 "signal" 会命中 sign 类，
+                        // "authorization" 的一部分会命中 auth 类。
+                        // 不给置信度的话，调用方无法区分"真的找到了密钥"
+                        // 和"刚好有个单词含这个词根"。
+                        o.put("confidence", confidenceOf(k, v));
+                        o.put("match_kind", matchKind(k, v));
                         arr.put(o);
                         break;
                     }
@@ -255,17 +261,24 @@ public final class ToolExecutor {
         }
 
         // ---------- radare2 ----------
-        // R2_Version 特殊处理：直接返回启动自检时拿到的版本串，
-        // 不再进 native。它之前一调用就崩进程（5051 随即拒绝连接），
-        // 版本信息是静态的，没必要冒险。
+        // R2_Version：版本串来自 :r2 隔离进程的真实自检，首次调用后缓存。
+        //
+        // 之前它读的是主进程 self-test 的缓存，而工具执行走另一条路径，
+        // 于是出现"R2_Version 说 OK，R2_Analyze 说未就绪"的自相矛盾（P2）。
+        // 现在两者都走 :r2，结果必然一致。
         if (n.equals("R2_Version")) {
             String v = Radare2Bridge.cachedVersion();
-            if (v != null) {
-                out.put("engine", "radare2 (内置 JNI 桥)");
-                out.put("version", v);
-                out.put("source", "启动自检缓存（未调用 native）");
-                return;
+            if (v == null) {
+                R2Remote.Result vr = R2Remote.get(ctx).test();
+                v = vr.out;
+                if (v != null && !v.isEmpty()) Radare2Bridge.setCachedVersion(v);
             }
+            out.put("engine", "radare2 (隔离进程 :r2)");
+            out.put("version", v == null ? "未知（:r2 自检未返回结果）" : v);
+            out.put("isolation", ":r2 独立进程；崩溃不影响 MCP 服务");
+            out.put("note", "每个 R2_* 工具与本次自检走同一进程、同一 core，"
+                    + "不会再出现'自检通过但工具崩'的割裂");
+            return;
         }
         if (n.startsWith("R2_")) {
             r2(n, a, out);
@@ -280,14 +293,26 @@ public final class ToolExecutor {
             if (!dir.exists()) { out.put("error", "目录不存在: " + p); return; }
             JSONArray arr = new JSONArray();
             File[] fs = dir.listFiles();
-            if (fs != null) {
-                for (File f : fs) {
-                    JSONObject o = new JSONObject();
-                    o.put("name", f.getName());
-                    o.put("is_dir", f.isDirectory());
-                    o.put("size", f.length());
-                    arr.put(o);
-                }
+            if (fs == null) {
+                // listFiles() 返回 null 几乎总是权限问题（Android 分区存储 /
+                // SELinux），之前静默返回空数组，让人以为"目录是空的"。
+                // 实测 /data/local/tmp 就是这样：同目录 Os_Grep 能命中文件，
+                // 列目录却是空的——误导性极强。
+                out.put("error", "无法列出目录: " + p
+                        + "（listFiles 返回 null，通常是权限不足或 SELinux 限制）");
+                out.put("exists", dir.exists());
+                out.put("is_dir", dir.isDirectory());
+                out.put("can_read", dir.canRead());
+                out.put("can_execute", dir.canExecute());
+                out.put("hint", "换用可访问目录，或用 Os_Grep 直接搜文件内容");
+                return;
+            }
+            for (File f : fs) {
+                JSONObject o = new JSONObject();
+                o.put("name", f.getName());
+                o.put("is_dir", f.isDirectory());
+                o.put("size", f.length());
+                arr.put(o);
             }
             out.put("path", p);
             out.put("entries", arr);
@@ -313,6 +338,49 @@ public final class ToolExecutor {
             // 安卓上真的能执行 shell（受应用沙箱权限限制）
             String cmd = opt(a, "command", "cmd");
             if (cmd == null) { out.put("error", "缺少 command"); return; }
+            boolean wantRoot = a.optBoolean("use_root", false)
+                    || a.optBoolean("root", false);
+            // use_root 之前完全没实现：传了也按普通 uid 跑，
+            // 于是 id 返回 u0_a386 却显示成功——假绿。
+            // 现在先探测 su，不可用就明确报错，绝不静默降级。
+            if (wantRoot) {
+                boolean suOk = false;
+                String suErr = null;
+                try {
+                    Process sp = Runtime.getRuntime().exec(
+                            new String[]{"su", "-c", "id"});
+                    String o = readStream(sp.getInputStream(), 4000);
+                    sp.waitFor();
+                    suOk = o != null && o.contains("uid=0");
+                    if (!suOk) suErr = "su 执行结果不是 root: " + o;
+                } catch (Throwable t) {
+                    suErr = "无法执行 su: " + t.getMessage();
+                }
+                out.put("root_requested", true);
+                out.put("root_available", suOk);
+                if (!suOk) {
+                    out.put("error", "root 不可用（已明确失败，未静默降级）: "
+                            + (suErr == null ? "未知原因" : suErr));
+                    out.put("hint", "确认设备已 root 且授予本 App root 权限；"
+                            + "或去掉 use_root 以普通权限重试");
+                    return;
+                }
+                // root 可用：用 su -c 包一层
+                Process pr = Runtime.getRuntime().exec(
+                        new String[]{"su", "-c", cmd});
+                java.io.InputStream is2 = pr.getInputStream();
+                java.io.InputStream es2 = pr.getErrorStream();
+                String so2 = readStream(is2, 20000);
+                String se2 = readStream(es2, 4000);
+                int code2 = pr.waitFor();
+                out.put("command", cmd);
+                out.put("as_root", true);
+                out.put("exit_code", code2);
+                out.put("stdout", so2);
+                out.put("stderr", se2);
+                out.put("executed", true);
+                return;
+            }
             Process pr = Runtime.getRuntime().exec(new String[]{"sh", "-c", cmd});
             java.io.InputStream is = pr.getInputStream();
             java.io.InputStream es = pr.getErrorStream();
@@ -458,15 +526,29 @@ public final class ToolExecutor {
             return;
         }
         if (n.equals("Engine_R2_Lib")) {
-            out.put("result", Radare2Bridge.status());
-            out.put("reload", Radare2Bridge.load(ctx).ok);
+            // 不在主进程 System.load radare2：加载本身也可能崩，
+            // 且加载后一旦调用就会带垮整个服务进程。
+            // 真实加载发生在 :r2 隔离进程首次被调用时。
+            java.util.List<String> miss2 = Radare2Bridge.missingLibs();
+            if (miss2 != null && !miss2.isEmpty()) {
+                out.put("result", "radare2 库不完整，缺: " + miss2);
+                out.put("ok", false);
+            } else {
+                out.put("result", "radare2 库齐全（在 :r2 隔离进程内加载执行）");
+                out.put("ok", true);
+            }
+            out.put("isolation", ":r2 独立进程，崩溃不影响 MCP 服务");
+            out.put("remote_crashed_last", R2Remote.get(ctx).lastCrashed());
             return;
         }
         if (n.equals("Engine_R2_Cmd")) {
             String c = opt(a, "command", "cmd");
             if (c == null) { out.put("error", "缺少 command"); return; }
             out.put("command", c);
-            out.put("output", Radare2Bridge.cmd(c));
+            R2Remote.Result rr2 = R2Remote.get(ctx).cmd(c);
+            out.put("output", rr2.out);
+            out.put("ok", rr2.ok);
+            if (rr2.crashed) out.put("warning", "radare2 隔离进程崩溃，服务未受影响");
             return;
         }
         if (n.equals("Engine_Guide")) {
@@ -545,8 +627,21 @@ public final class ToolExecutor {
             String glob = opt(a, "pattern", "glob", "keyword", "kw");
             if (dir == null) dir = ctx.getFilesDir().getAbsolutePath();
             JSONArray arr = new JSONArray();
-            findInto(new File(dir), glob, arr, a.optInt("limit", 300), 0);
+            File root = new File(dir);
+            if (!root.exists()) { out.put("error", "目录不存在: " + dir); return; }
+            if (!root.isDirectory()) { out.put("error", "不是目录: " + dir); return; }
+            if (!root.canRead()) {
+                out.put("error", "无权限读取目录: " + dir
+                        + "（Android 分区存储 / SELinux 限制）");
+                out.put("files", new JSONArray());
+                return;
+            }
+            findInto(root, glob, arr, a.optInt("limit", 300), 0);
             out.put("files", arr);
+            if (arr.length() == 0) {
+                out.put("note", "目录可读但未匹配到文件；"
+                        + "检查 pattern 是否与实际文件名匹配");
+            }
             return;
         }
 
@@ -573,9 +668,15 @@ public final class ToolExecutor {
             return;
         }
         if (n.equals("Sqlite_Query")) {
-            String db = opt(a, "db", "path", "database");
+            // schema 里声明的是 db_path / query，实现只读 db / sql，
+            // 于是按 schema 传参必然报"缺少 db 或 sql"。两套名字都认。
+            String db = opt(a, "db", "db_path", "database", "path");
             String sql = opt(a, "sql", "query");
-            if (db == null || sql == null) { out.put("error", "缺少 db 或 sql"); return; }
+            if (db == null || sql == null) {
+                out.put("error", "缺少 db 或 sql");
+                out.put("accepted_params", "db 或 db_path；sql 或 query");
+                return;
+            }
             android.database.sqlite.SQLiteDatabase sd = null;
             try {
                 sd = android.database.sqlite.SQLiteDatabase.openDatabase(
@@ -699,13 +800,14 @@ public final class ToolExecutor {
         if (n.equals("Rename_Function")) {
             String newName = opt(a, "name", "new_name");
             String addr = opt(a, "addr", "address", "offset");
-            if (Radare2Bridge.load(ctx).ok) {
+            {
                 String c = (addr != null ? ("s " + addr + "; ") : "")
                         + "afn " + (newName == null ? "" : newName);
                 out.put("command", c);
-                out.put("output", Radare2Bridge.cmd(c));
-            } else {
-                out.put("error", "radare2 不可用: " + Radare2Bridge.status());
+                R2Remote.Result rr3 = R2Remote.get(ctx).cmd(c);
+                out.put("output", rr3.out);
+                out.put("ok", rr3.ok);
+                if (rr3.crashed) out.put("warning", "radare2 隔离进程崩溃，服务未受影响");
             }
             return;
         }
@@ -781,6 +883,9 @@ public final class ToolExecutor {
 
         // ---------- 引擎状态 ----------
         if (n.equals("Engine_Status") || n.equals("Engine_Inventory") || n.equals("Engine_Probe")) {
+            // 下面统一补 radare2 与 capstone：之前清单里只有 unidbg，
+            // 于是"引擎清单"看着像只有 unidbg 一个能用，与日志里
+            // "已加载 28 个库"完全对不上。
             engineStatus(out);
             return;
         }
@@ -809,6 +914,38 @@ public final class ToolExecutor {
         return "该工具需要桌面端 Python 后端或额外运行环境。";
     }
 
+    /**
+     * 关键词命中的置信度。
+     *
+     * 纯子串匹配会把无关单词也算进来（"signal" 命中 sign、
+     * "resign" 命中 sign、"author" 命中 auth）。
+     * 词边界命中（独立单词）可信度明显更高，子串命中只当线索。
+     */
+    private static String confidenceOf(String key, String valueLower) {
+        if (valueLower == null || key == null) return "low";
+        // 独立成词
+        if (valueLower.equals(key)) return "high";
+        int i = valueLower.indexOf(key);
+        if (i < 0) return "low";
+        boolean leftOk = i == 0 || !Character.isLetterOrDigit(valueLower.charAt(i - 1));
+        boolean rightOk = i + key.length() == valueLower.length()
+                || !Character.isLetterOrDigit(valueLower.charAt(i + key.length()));
+        if (leftOk && rightOk) return "high";
+        // 一边是边界（如 "api_key" 里的 "key"）
+        return (leftOk || rightOk) ? "medium" : "low";
+    }
+
+    private static String matchKind(String key, String valueLower) {
+        if (valueLower == null || key == null) return "substring";
+        int i = valueLower.indexOf(key);
+        if (i < 0) return "substring";
+        boolean leftOk = i == 0 || !Character.isLetterOrDigit(valueLower.charAt(i - 1));
+        boolean rightOk = i + key.length() == valueLower.length()
+                || !Character.isLetterOrDigit(valueLower.charAt(i + key.length()));
+        if (leftOk && rightOk) return "word";
+        return "substring";
+    }
+
     private JSONArray implementedList() {
         return new JSONArray()
                 .put("Apk_Open").put("Apk_Info").put("Apk_Extract")
@@ -821,6 +958,13 @@ public final class ToolExecutor {
 
     // ---------- APK 解析 ----------
 
+    /**
+     * 解析 APK 路径，并把"不存在 / 无权限 / SELinux"三类失败区分开。
+     *
+     * 之前统一报"文件不存在"：实测 /data/local/tmp 下的 APK 明明 ls 得到，
+     * 工具却说不存在——真实原因是 canRead() 失败被当成了不存在。
+     * 这种误导会让人反复怀疑自己路径写错了。
+     */
     private File resolveApk(JSONObject a) throws Exception {
         String p = opt(a, "apk_path", "apk", "path", "file", "file_path");
         if (p == null) p = currentApk;
@@ -829,10 +973,29 @@ public final class ToolExecutor {
         if (!f.exists()) {
             // 可能是 content:// 或 primary: 前缀，尝试常见下载目录
             File alt = tryResolve(p);
-            if (alt == null || !alt.exists()) throw new Exception("文件不存在: " + p);
+            if (alt == null || !alt.exists()) {
+                throw new Exception("文件不存在: " + p + "。" + readableDirHint());
+            }
             f = alt;
         }
+        if (!f.isFile()) throw new Exception("不是文件（可能是目录）: " + p);
+        if (!f.canRead()) {
+            throw new Exception("文件存在但不可读: " + p
+                    + "（应用沙箱无该路径读权限，常见于 /data/local/tmp "
+                    + "或其他应用私有目录）。" + readableDirHint());
+        }
         return f;
+    }
+
+    /** 列出本 App 确定可读写、推荐给调用方放置 APK 的目录。 */
+    private String readableDirHint() {
+        File wd = workDir();
+        File dl = android.os.Environment.getExternalStoragePublicDirectory(
+                android.os.Environment.DIRECTORY_DOWNLOADS);
+        return "建议把 APK 放到本应用可访问的位置："
+                + (wd == null ? "" : wd.getAbsolutePath())
+                + " 或 " + (dl == null ? "/sdcard/Download" : dl.getAbsolutePath())
+                + "；也可先用 File_Download / Apk_Upload 由本端接收文件。";
     }
 
     private File tryResolve(String p) {
@@ -1189,10 +1352,11 @@ public final class ToolExecutor {
                 return;
             }
             if (bOp.equals("blutter.disasm")) {
-                String r = Radare2Bridge.load(ctx).ok
-                        ? Radare2Bridge.cmd("pdf @ " + (kw == null ? "entry0" : kw))
-                        : null;
-                out.put("disasm", r != null ? r : "radare2 不可用");
+                R2Remote.Result dr = R2Remote.get(ctx)
+                        .cmd("pdf @ " + (kw == null ? "entry0" : kw));
+                out.put("disasm", dr.out);
+                out.put("ok", dr.ok);
+                if (dr.crashed) out.put("warning", "radare2 隔离进程崩溃，服务未受影响");
                 return;
             }
             if (bOp.equals("blutter.tor2") || bOp.equals("blutter.tofrida")
@@ -1372,12 +1536,9 @@ public final class ToolExecutor {
      * 不用先建 r2 会话（那段流程对"就想知道这几字节是什么指令"太重）。
      */
     private void capstone(String n, JSONObject a, JSONObject out) throws Exception {
-        if (!CapstoneJni.load(ctx)) {
-            out.put("engine", "capstone (不可用)");
-            out.put("error", CapstoneJni.lastError());
-            out.put("hint", "需要 libcapstone.so；若要走 JNI 桥还需 libdisassembler.so");
-            return;
-        }
+        // capstone 与 radare2 一样会在 native 里崩溃，且 Java 拦不住。
+        // 真实测试里 Capstone_Disasm 一调用就把 5051 带崩。
+        // 所以反汇编统一丢到 :r2 隔离进程，主进程只负责准备字节和收结果。
         String path = opt(a, "so", "path", "file", "bin");
         String hex = opt(a, "hex", "bytes", "code");
         byte[] code = null;
@@ -1403,8 +1564,9 @@ public final class ToolExecutor {
             if (code == null) { out.put("error", "读取失败"); return; }
         } else {
             out.put("engine", "capstone");
-            out.put("status", CapstoneJni.describe(ctx));
             out.put("usage", "传 hex=<十六进制> 或 so=<文件路径>+offset+length");
+            out.put("note", "反汇编在 :r2 隔离进程执行；"
+                    + "未传 hex/so 时不触发加载，避免无谓的 native 崩溃风险");
             return;
         }
 
@@ -1430,33 +1592,45 @@ public final class ToolExecutor {
         String cs = opt(a, "count", "limit");
         if (cs != null) { try { count = Integer.parseInt(cs); } catch (Exception ignored) {} }
 
-        List<CapstoneJni.Insn> list = CapstoneJni.disasm(code, addr, arch, mode, count);
-        out.put("engine", "capstone (JNI)");
+        // 把字节转 hex，交给 :r2 进程反汇编
+        StringBuilder hb = new StringBuilder(code.length * 2);
+        for (byte bb : code) hb.append(String.format("%02x", bb));
+        JSONObject dargs = new JSONObject();
+        dargs.put("hex", hb.toString());
+        dargs.put("addr", addr);
+        dargs.put("arch", arch);
+        dargs.put("mode", mode);
+        dargs.put("count", count);
+
+        R2Remote.Result cr = R2Remote.get(ctx).disasm(dargs.toString());
+        out.put("engine", "capstone (隔离进程 :r2)");
         out.put("arch", arch);
-        out.put("count", list.size());
-        JSONArray arr = new JSONArray();
-        for (CapstoneJni.Insn in : list) {
-            JSONObject o = new JSONObject();
-            o.put("address", "0x" + Long.toHexString(in.address));
-            o.put("mnemonic", in.mnemonic);
-            o.put("operands", in.operands);
-            arr.put(o);
+        if (cr.crashed) {
+            out.put("error", "capstone 在隔离进程中崩溃（MCP 服务未受影响）: " + cr.out);
+            out.put("hint", "libcapstone.so 为动态注册，签名需完全一致；"
+                    + "检查 capstone/jni/FastDisassembler 的方法声明");
+            return;
         }
-        out.put("insns", arr);
-        if (list.isEmpty()) {
-            String ce = CapstoneJni.lastCallError();
-            if (ce != null) {
-                // 把真实签名带出去：改一次 Java 侧声明即可
-                out.put("error", ce);
+        // cr.out 是 :r2 返回的 JSON 字符串
+        try {
+            JSONObject res = new JSONObject(cr.out);
+            if (res.has("error")) {
+                out.put("error", res.optString("error"));
                 out.put("hint", "so 为动态注册，签名需完全一致；"
                         + "按上面 UnsatisfiedLinkError 里的签名改 "
                         + "capstone/jni/FastDisassembler 的声明");
                 return;
             }
-
-            out.put("hint", "反汇编结果为空：可能是桥签名不匹配，"
-                    + "或该架构未被 capstone 启用");
+            java.util.Iterator<String> it = res.keys();
+            while (it.hasNext()) {
+                String k = it.next();
+                out.put(k, res.opt(k));
+            }
+        } catch (Exception pe) {
+            out.put("error", "解析 :r2 反汇编结果失败: " + pe.getMessage());
+            out.put("raw", cr.out == null ? "" : cr.out.substring(0, Math.min(500, cr.out.length())));
         }
+        return;
     }
 
     /** 解析十六进制串，允许空格/冒号分隔。 */
@@ -1897,6 +2071,19 @@ public final class ToolExecutor {
             out.put("rpc_supported", false);
             out.put("rpc_note", "与 frida-server 的 RPC 走私有二进制协议，"
                     + "本版仅提供探测/拉起/脚本生成，不伪装为已支持");
+            // 环境不具备时必须标成错误。之前全部返回 ok，
+            // 于是在没有 frida-server 的设备上，55 个 Fr_* 工具看起来"可用"，
+            // 实际一个都跑不通——调用方无从判断。
+            boolean usable = st.serverRunning || st.gadgetAvailable;
+            out.put("usable", usable);
+            if (!usable) {
+                out.put("isError", true);
+                out.put("error", "Frida 不可用：未 root 或未找到 frida-server / gadget。"
+                        + "所有 Fr_* 工具在此环境下无法执行。");
+                out.put("how_to_fix", "① 确保设备已 root；"
+                        + "② 把 frida-server 放到 /data/local/tmp 并 chmod 755；"
+                        + "③ 用本工具 action=start 拉起，或 action=script 生成 JS 手工注入");
+            }
             return;
         }
         if ("start".equals(act)) {
@@ -2231,13 +2418,26 @@ public final class ToolExecutor {
         String target = opt(a, "so", "path", "file", "apk_path");
         if (target == null) target = currentApk;
 
-        // 1) 主路径：内置 radare2（JNI 桥 + 23 个 libr_*.so），不依赖任何外部 App
-        Radare2Bridge.LoadReport rep = Radare2Bridge.load(ctx);
-        if (rep.ok) {
+        // 1) 主路径：内置 radare2（JNI 桥 + 全套 libr_*.so），不依赖任何外部 App。
+        //
+        // 必须走 :r2 隔离进程，不能在主进程里 System.load + 调用：
+        // radare2 在 native 里 SIGSEGV 时死的是整个进程，Java 拦不住。
+        // 之前在主进程直调，一次崩溃就带垮 5051，客户端只能看到"断连"。
+        // 现在崩溃只杀 :r2，本次调用返回明确的错误，服务继续存活。
+        R2Remote remote = R2Remote.get(ctx);
+        R2Remote.Result opened = null;
+        {
             if (target != null && new File(target).isFile()) {
-                String opened = Radare2Bridge.open(target);
-                out.put("open_result", opened);
+                opened = remote.open(target);
+                out.put("open_result", opened.out);
+                if (!opened.ok && opened.crashed) {
+                    out.put("error", "radare2 打开文件时崩溃（已在 :r2 隔离，服务未受影响）: "
+                            + opened.out);
+                    out.put("engine", "radare2 (隔离进程)");
+                    return;
+                }
             }
+            if (true) {
             // 命令来源优先级：
             //   1. 调用方显式传的 command/cmd
             //   2. R2Commands 映射表（覆盖 94 个 R2_* 工具）
@@ -2249,14 +2449,22 @@ public final class ToolExecutor {
                 realCmd = (mapped != null && !mapped.trim().isEmpty())
                         ? mapped : defaultR2Cmd(n);
             }
-            String res = Radare2Bridge.cmd(realCmd);
-            out.put("engine", "radare2 (内置 JNI 桥)");
+            R2Remote.Result rr = remote.cmd(realCmd);
+            out.put("engine", "radare2 (隔离进程 :r2)");
             out.put("heuristic", false);
             out.put("command", realCmd);
-            out.put("output", res);
-            out.put("libs_loaded", rep.loaded.size());
-            if (!rep.missing.isEmpty()) {
-                out.put("libs_missing", new JSONArray(rep.missing));
+            out.put("output", rr.out);
+            if (rr.crashed) {
+                out.put("warning", "radare2 在隔离进程中崩溃，"
+                        + "本次无结果；MCP 服务未受影响，可重试或换用其他引擎。");
+                out.put("ok", false);
+            } else {
+                out.put("ok", rr.ok);
+            }
+            java.util.List<String> miss = Radare2Bridge.missingLibs();
+            if (miss != null && !miss.isEmpty()) {
+                out.put("libs_missing", new JSONArray(miss));
+            }
             }
             return;
         }
@@ -2322,6 +2530,57 @@ public final class ToolExecutor {
                 o.put("ready", cnt > 0);
                 eng.put(d.getName(), o);
             }
+        }
+        // radare2 / capstone / blutter 不在 engineRoot 下（它们在 nativeLibraryDir，
+        // 因为 Android 10+ 禁止 execve 私有目录文件），所以上面的目录扫描
+        // 永远扫不到它们。这里按真实位置补上，否则"引擎清单"里看不到
+        // 明明可用的 radare2，与日志里"已加载 28 个库"直接矛盾。
+        File nd = EngineUnpacker.nativeDir(ctx);
+        if (nd != null && nd.isDirectory()) {
+            String[] files = nd.list();
+            int r2cnt = 0, capcnt = 0, blcnt = 0;
+            long r2sum = 0, capsum = 0, blsum = 0;
+            if (files != null) {
+                for (String fn : files) {
+                    File f = new File(nd, fn);
+                    long sz = f.length();
+                    if (fn.startsWith("libr_") || fn.equals("libr2aibridge.so")) {
+                        r2cnt++; r2sum += sz;
+                    } else if (fn.startsWith("libcapstone")
+                            || fn.startsWith("libdisassembler")) {
+                        capcnt++; capsum += sz;
+                    } else if (fn.startsWith("libblutter")) {
+                        blcnt++; blsum += sz;
+                    }
+                }
+            }
+            java.util.List<String> miss = Radare2Bridge.missingLibs();
+            boolean r2ready = r2cnt > 0 && (miss == null || miss.isEmpty());
+            JSONObject r2o = new JSONObject();
+            r2o.put("files", r2cnt);
+            r2o.put("mb", round(r2sum / 1048576.0));
+            r2o.put("ready", r2ready);
+            r2o.put("location", nd.getAbsolutePath());
+            r2o.put("isolation", ":r2 独立进程执行，崩溃不影响 MCP 服务");
+            r2o.put("crashed_last", R2Remote.get(ctx).lastCrashed());
+            if (miss != null && !miss.isEmpty()) r2o.put("missing", new JSONArray(miss));
+            eng.put("radare2", r2o);
+
+            JSONObject cap = new JSONObject();
+            cap.put("files", capcnt);
+            cap.put("mb", round(capsum / 1048576.0));
+            cap.put("ready", capcnt > 0);
+            cap.put("location", nd.getAbsolutePath());
+            cap.put("isolation", ":r2 独立进程执行");
+            eng.put("capstone", cap);
+
+            JSONObject blo = new JSONObject();
+            blo.put("files", blcnt);
+            blo.put("mb", round(blsum / 1048576.0));
+            blo.put("ready", blcnt > 0);
+            blo.put("note", "最高变体 3.12.1，按旧符号命名编译；"
+                    + "Dart 3.13+ 目标不支持");
+            eng.put("blutter", blo);
         }
         out.put("engines", eng);
         out.put("engine_root", root.getAbsolutePath());

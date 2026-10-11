@@ -316,6 +316,14 @@ public final class Radare2Bridge {
 
     public static String cachedVersion() { return cachedVersion; }
 
+    /**
+     * 由主进程回填 :r2 自检拿到的版本串。
+     * 自检现在跑在隔离进程，结果要传回主进程才能被 R2_Version 复用。
+     */
+    public static void setCachedVersion(String v) {
+        if (v != null && !v.isEmpty()) cachedVersion = v;
+    }
+
     /** 是否已成功加载。 */
     /** 加载时缺失的库清单。 */
     public static java.util.List<String> missingLibs() {
